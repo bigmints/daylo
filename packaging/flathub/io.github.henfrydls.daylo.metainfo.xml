@@ -39,6 +39,12 @@
   </branding>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="1.4.2" date="2026-10-12">
+      <url>https://github.com/henfrydls/daylo/releases/tag/v1.4.2</url>
+      <description>
+        <p>Everything there is to decide is in one place now, called Settings: your daily reminder on Android, export and import, privacy, and who made Daylo. On a computer it opens as a panel beside the calendar; on a phone it takes the screen, and the menu of six entries is gone with it. The anonymous check-in is a single line, with what it is for, everything it sends and what turning it off costs together under What gets sent. Send feedback is a row you can press, and on the website it now opens your email, where before it did nothing at all. On a phone every dialog comes up from the bottom edge and goes back down, the way the day sheet does, instead of being simply there and then simply gone. Saying no to deleting an activity leaves the panel you said it in open and where it was. And the reminder Daylo offers after your first activity is for the next hour on the hour, so one agreed to at ten to nine arrives at nine.</p>
+      </description>
+    </release>
     <release version="1.4.1" date="2026-10-07">
       <url>https://github.com/henfrydls/daylo/releases/tag/v1.4.1</url>
       <description>
