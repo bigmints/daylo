@@ -3,6 +3,57 @@
 What changed in each release, for the people who use Daylo. Earlier versions are not
 listed: this file starts at 1.1.2, when the first change worth warning about arrived.
 
+## 1.4.2
+
+**The day sheet slides in and out again.** Tapping a day put the sheet on the screen
+already arrived, and closing it took it away in the same instant: no movement either way,
+on a screen where everything else moves. It comes up from under the bottom edge now and
+goes back down the same way, and it keeps the day written on it until it has gone.
+
+**Everything there is to decide is in one place, called Settings.** Your daily reminder on
+Android, export and import, privacy, and who made Daylo. On a computer it opens as a panel
+beside the calendar; on a phone it takes the screen. The menu of six entries is gone with it:
+on a computer the corner of the header is a gear, and on Android it is a menu of two, Daily
+reminder and Settings.
+
+**Privacy is one place to decide and one place to read.** The anonymous check-in is a single line
+with its switch, and what it is for, everything it sends and what turning it off costs are
+together under What gets sent. Send feedback is a row you can press, and on
+daylo.henfrydls.com it now opens your email, where before it did nothing. The privacy policy
+sits at the foot with the website, the source and the license.
+
+**The version lives under About.** Pressing the row asks whether there is a newer one.
+Installing is the small word beside the number and nothing else, because a row is easy to
+press by accident and installing closes Daylo and opens it again. The grey lines between rows
+are gone; the space around each one does that work now.
+
+**The daily reminder stays out of the way until you want it.** With it switched off you see
+only the switch; the time, and a note that Android may deliver it a few minutes late, open
+out when you turn it on. When Daylo offers a reminder after your first activity, it proposes
+the next hour on the hour, so one agreed to at ten to nine arrives at nine. From ten at night
+until six in the morning it offers eight in the evening instead. If you already picked a time
+yourself, that is the one it offers.
+
+**Touching anything in the activities sheet no longer makes the page behind it flicker.**
+Every press, the edit pencil included, took the blur off the calendar underneath and put it
+back when you let go. The sheet treated any touch as the beginning of a drag; it waits for
+your finger to actually go down the screen now, and while you drag it the blur fades out
+with the sheet rather than vanishing at the first touch.
+
+**Export and Import come up and go down.** They used to be simply there, and then simply
+gone, which reads as the screen flickering rather than as something opening and closing.
+On a phone they come up from the bottom edge and go back down the same way, like the sheet
+you get when you tap a day; on a wider screen they grow into the middle, where there is no
+bottom edge to come from. Every other dialog moves the same way now: adding or editing an
+activity, the one that asks how Daylo is going, and the ones that ask before doing
+something.
+
+**Saying no to deleting an activity no longer closes the panel you said it in.** Pressing
+the bin asked whether you were sure, and whichever way you answered that question, the
+activities panel went with it. Now it stays open, in the same place, with the activity
+still in it. Escape does the same: it takes away whatever is in front of you and leaves
+what is behind it alone.
+
 ## 1.4.1
 
 **Daylo now says how it was installed when it checks in.** One word, such as store or
