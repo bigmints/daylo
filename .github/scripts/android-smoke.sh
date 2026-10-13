@@ -19,8 +19,12 @@ ACTIVITY="$PKG/.MainActivity"
 APK="${SMOKE_APK:?SMOKE_APK is not set: the signing step should have put it in GITHUB_ENV}"
 
 # Kept next to the screenshot so a failure can be read without re-running anything.
-LOG=smoke-logcat.txt
-SHOT=smoke-screenshot.png
+#
+# Named through the environment so the same script can be run more than once in one
+# emulator session without each run erasing the evidence of the last. Unset, which is
+# every use on a pull request, the names are what they have always been.
+LOG="${SMOKE_LOG:-smoke-logcat.txt}"
+SHOT="${SMOKE_SHOT:-smoke-screenshot.png}"
 
 # Anything that ends this script without going through fail() is a bug in the script, not
 # a verdict on the app, and it has to say so out loud. One run suspended with Daylo alive
