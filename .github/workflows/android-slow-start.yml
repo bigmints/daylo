@@ -1,0 +1,155 @@
+# Make a slow start happen on purpose, and read what the app says while it dies.
+#
+# WHY THIS EXISTS: the smoke job has aborted twice in two different ways, and both times
+# the emulator was the slowest of the night. One was understood from the trace
+# (wry/src/android/mod.rs:474, a recv_timeout unwrap, upstream). The other was not: the
+# app called exit itself, cleanly, about two seconds after it drew, and the release build
+# says nothing about why because Tauri and wry gate every log line behind
+# BuildConfig.DEBUG.
+#
+# So this builds the debug APK, where all of that speaks, and starts it many times, some of
+# them with the machine deliberately busy and some of them not. A failure that happens one
+# run in six is a lottery; one that can be provoked is a measurement. And a rate under load
+# is only a finding next to a rate without it: the smoke job has failed with nobody loading
+# anything, so without the quiet arm "it failed while busy" would be a story rather than a
+# comparison.
+#
+# WHAT IT IS NOT: not a check. Nothing here gates anything, it runs only when somebody
+# asks for it by hand, and it publishes nothing. It exists to be deleted when the question
+# it was written for has an answer.
+name: Android slow start
+
+on:
+  workflow_dispatch:
+    inputs:
+      loaded_runs:
+        description: 'Starts with the machine deliberately busy'
+        type: number
+        default: 8
+      plain_runs:
+        description: 'Starts on a quiet machine, as the control'
+        type: number
+        default: 4
+
+permissions:
+  contents: read
+
+jobs:
+  provoke:
+    name: Start it on a busy machine, several times
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      # Not about secrets, and the first version of this said it was. There are none
+      # here: no keystore, no signing key, nothing but a debug build that Gradle signs
+      # with the throwaway key it makes for itself. It stops on a fork because it spends
+      # the better part of an hour on an emulator to answer a question about this app,
+      # and the answer would be about somebody else's copy of it.
+      - name: Not on a fork
+        if: github.repository != 'henfrydls/daylo'
+        run: |
+          echo "::error::This spends an emulator hour investigating a crash in this app."
+          echo "::error::Nothing here uses a secret; it stops because the answer would be"
+          echo "::error::about a fork rather than about Daylo."
+          exit 1
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-36 build-tools;35.0.0 platform-tools'
+
+      - name: Install Android NDK
+        run: sdkmanager "ndk;29.0.14206865"
+
+      # x86_64 for the same reason the smoke job uses it: an emulator on a runner is
+      # x86_64 and an arm64 APK would be translated instruction by instruction.
+      - name: Install Rust stable with the emulator's Android target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-linux-android
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+          shared-key: android-x86_64
+          cache-on-failure: true
+
+      - name: Install Node.js dependencies
+        run: npm ci
+
+      - name: Install Tauri CLI
+        run: npm install --save-dev @tauri-apps/cli
+
+      # Debug, which is the whole point: a release APK hides Logger.error, every
+      # console.error from the app, and the plugin's own account of what it scheduled.
+      - name: Build the debug APK
+        run: npx tauri android build --apk --debug --target x86_64
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
+
+      - name: Find it
+        run: |
+          set -euo pipefail
+          shopt -s nullglob globstar
+          apks=( src-tauri/gen/android/app/build/outputs/apk/**/debug/*.apk )
+          if [ ${#apks[@]} -ne 1 ]; then
+            echo "::error::Expected exactly one debug APK, found ${#apks[@]}."
+            printf '::error::  %s\n' "${apks[@]}"
+            exit 1
+          fi
+          echo "SMOKE_APK=$PWD/${apks[0]}" >> "$GITHUB_ENV"
+
+      - name: Let the runner use KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install Pillow
+        run: python3 -m pip install --quiet pillow || python3 -m pip install --quiet --break-system-packages pillow
+
+      # The arms are interleaved by the script rather than run in blocks, so a runner that
+      # slows down as it goes cannot hand all its bad luck to whichever arm came last.
+      - name: Start it again and again
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: bash .github/scripts/android-slow-start.sh
+        env:
+          LOADED_RUNS: ${{ inputs.loaded_runs }}
+          PLAIN_RUNS: ${{ inputs.plain_runs }}
+
+      - name: Upload every log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-slow-start-evidence
+          path: |
+            slow-start-*.txt
+            slow-start-*.png
+          retention-days: 7
+          if-no-files-found: warn
