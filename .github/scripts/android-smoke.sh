@@ -30,10 +30,43 @@ SHOT=smoke-screenshot.png
 # this fires only on the unplanned kind.
 trap 'echo "::error::The smoke script itself failed at line $LINENO. That is a bug in this script, not a finding about the app."' ERR
 
+# The lines that say what went wrong, wherever they are in the log, and only then the
+# end of it.
+#
+# It used to print the last 200 lines and nothing else, which is the part of a crash log
+# least likely to contain the crash: the process dies, Android goes on logging, and by
+# the time the job reads the file the abort is thousands of lines back. One run cost us
+# an evening for exactly that. The panic and the signal were in the artifact all along,
+# 964 lines from the end, while the job's own output began after the app was already
+# dead and said nothing about why.
+# One pattern, used by the check that decides and by the message that explains, because
+# two of them drift and the drift is invisible: the deciding one would fire and the
+# explaining one would print nothing, which is how the first version of this read a log
+# full of FORTIFY aborts and showed only "beginning of crash".
+#
+# The level letter is what makes it general. logcat marks fatal lines with F in the column
+# after the pids, and that catches what libc writes on an abort, what DEBUG writes for a
+# tombstone, and whatever Android marks fatal next year without anybody adding it here.
+# The named ones stay because a Rust panic is logged at I by wry's stdout bridge, which no
+# level filter would ever find.
+FATAL='beginning of crash|FATAL EXCEPTION|Fatal signal|FORTIFY|panicked at|RustStdoutStderr.*(panicked|Err)|^[0-9-]+ [0-9:.]+ +[0-9]+ +[0-9]+ F '
+
+fatal_lines() {
+  grep -nE "$FATAL" "$LOG" 2>/dev/null | head -40
+}
+
 fail() {
   echo "::error::$*"
-  echo "--- last 200 lines of logcat ---"
-  tail -n 200 "$LOG" 2>/dev/null || echo "(no logcat captured)"
+  local fatal
+  fatal=$(fatal_lines)
+  if [ -n "$fatal" ]; then
+    echo "--- what logcat calls fatal, by line number ---"
+    printf '%s\n' "$fatal"
+  else
+    echo "--- nothing in logcat is marked fatal; here is the end of it ---"
+    tail -n 200 "$LOG" 2>/dev/null || echo "(no logcat captured)"
+  fi
+  echo "--- the whole log is in the android-smoke-evidence artifact ---"
   exit 1
 }
 
@@ -77,7 +110,11 @@ done
 # Ten seconds more before looking. A process that aborts on its first frame can still be
 # caught mid-start by the loop above, and a panic inside run() takes a moment to land.
 sleep 10
-adb logcat -d > "$LOG" || true
+# The default buffer set already includes crash on these images, and the abort that cost
+# us an evening was in this file. It is named anyway, so that the file does not depend on
+# a default: a log without the crash buffer would look exactly like an app that died
+# quietly.
+adb logcat -d -b main,system,crash > "$LOG" || true
 
 # The picture first, before anything can fail. It is the cheapest evidence there is and a
 # failing run is exactly when it is wanted: the first time this job suspended, it did so
@@ -113,6 +150,10 @@ if [ -n "$exit_reason" ]; then
 fi
 
 if grep -q "CRASH" <<< "${exits:-}"; then
+  # Android's own record says a crash, and `fail` now digs the lines out of logcat rather
+  # than printing the end of it. Those lines are the whole difference between "it died"
+  # and knowing what killed it: exit-info records `trace=null` for a native abort, so
+  # without them this check reports a crash and no cause.
   fail "Android recorded a crash for $PKG ($exit_reason). Its own words are in the group above."
 fi
 
@@ -120,9 +161,9 @@ fi
 # one this looked only for those two. libc writes its own epitaph and logcat marks the
 # spot: "--------- beginning of crash", then an F line. FORTIFY aborts land here, and so
 # does any signal.
-if grep -qE "beginning of crash|^[0-9-]+ [0-9:.]+ +[0-9]+ +[0-9]+ F |FATAL EXCEPTION|RustStdoutStderr.*panicked at|Fatal signal" "$LOG"; then
+if grep -qE "$FATAL" "$LOG"; then
   echo "::group::What logcat says went wrong"
-  grep -nE "beginning of crash| F (libc|DEBUG) |FATAL EXCEPTION|RustStdoutStderr|Fatal signal" "$LOG" | head -40
+  fatal_lines
   echo "::endgroup::"
   fail "The app logged a fatal error. The lines are in the group above and the whole log is in the artifact."
 fi
