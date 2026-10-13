@@ -186,8 +186,14 @@ mod tests {
     /// mapping exists apart from the updater's.
     #[test]
     fn windows_installers_are_one_door() {
-        assert_eq!(installed_from(Some("nsis"), None), installed_from(Some("msi"), None));
-        assert_ne!(installed_from(Some("nsis"), None), installed_from(Some("store"), None));
+        assert_eq!(
+            installed_from(Some("nsis"), None),
+            installed_from(Some("msi"), None)
+        );
+        assert_ne!(
+            installed_from(Some("nsis"), None),
+            installed_from(Some("store"), None)
+        );
     }
 
     /// Android has two doors now, and only one of them has a name.
@@ -203,7 +209,10 @@ mod tests {
         assert_eq!(android_source(Some("com.android.vending")), "play");
         assert_eq!(android_source(None), "apk");
         assert_eq!(android_source(Some("com.android.chrome")), "apk");
-        assert_eq!(android_source(Some("com.google.android.packageinstaller")), "apk");
+        assert_eq!(
+            android_source(Some("com.google.android.packageinstaller")),
+            "apk"
+        );
         assert_eq!(android_source(Some("org.fdroid.fdroid")), "apk");
     }
 
@@ -257,8 +266,14 @@ mod tests {
     /// become a copy from Play because a package manager had a name.
     #[test]
     fn the_installer_cannot_overrule_a_format() {
-        assert_eq!(installed_from(Some("deb"), Some("com.android.vending")), "deb");
-        assert_eq!(installed_from(Some("store"), Some("com.android.vending")), "store");
+        assert_eq!(
+            installed_from(Some("deb"), Some("com.android.vending")),
+            "deb"
+        );
+        assert_eq!(
+            installed_from(Some("store"), Some("com.android.vending")),
+            "store"
+        );
     }
 
     /// The mapping, spelled out. It exists so that a rename upstream is a compile error
