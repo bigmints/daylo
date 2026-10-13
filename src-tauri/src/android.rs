@@ -113,3 +113,107 @@ pub fn installer_package_name() -> Option<String> {
     })
     .flatten()
 }
+
+/// How long to wait for the other end, in milliseconds, for each of connecting and
+/// reading. Short on purpose: nothing waits on this answer and nobody asked for it, so a
+/// slow network should end in "could not find out" rather than in a request still open
+/// when the person has moved on.
+const PATIENCE: i32 = 5_000;
+
+/// Fetch a small text document with the phone's own HTTP client.
+///
+/// Java's and not a Rust one, which keeps a second TLS stack out of the APK and leaves
+/// the connection to the platform that is already trusted to make them. No headers are
+/// set and no body is sent: what goes out is what any request carries.
+///
+/// The caller must not be on the interface thread. Android throws
+/// NetworkOnMainThreadException there, and a Tauri command is on the main thread unless it
+/// is async, so the command that calls this hands it to a blocking thread.
+///
+/// Every failure is an Err and none of them is an empty string, because "nothing came
+/// back" and "nothing is there" are different answers and only one of them is news.
+pub fn fetch_text(url: &str, limit: i32) -> Result<String, String> {
+    with_the_activity(|env, _activity| {
+        let address = env.new_string(url)?;
+        let target = env.new_object(
+            "java/net/URL",
+            "(Ljava/lang/String;)V",
+            &[JValue::Object(&address)],
+        )?;
+        let connection = env
+            .call_method(&target, "openConnection", "()Ljava/net/URLConnection;", &[])?
+            .l()?;
+
+        env.call_method(
+            &connection,
+            "setConnectTimeout",
+            "(I)V",
+            &[JValue::Int(PATIENCE)],
+        )?;
+        env.call_method(
+            &connection,
+            "setReadTimeout",
+            "(I)V",
+            &[JValue::Int(PATIENCE)],
+        )?;
+
+        // Resolved against the object's own class, so these reach HttpURLConnection even
+        // though openConnection is typed as its parent.
+        let status = env
+            .call_method(&connection, "getResponseCode", "()I", &[])?
+            .i()?;
+        if status != 200 {
+            return Ok(Err(format!("the address answered {status}")));
+        }
+
+        // -1 means the other end did not say, which is allowed; a number that is too big
+        // is refused before anything is read rather than after.
+        let length = env
+            .call_method(&connection, "getContentLength", "()I", &[])?
+            .i()?;
+        if length > limit {
+            return Ok(Err(format!(
+                "the answer is {length} bytes, which is too much"
+            )));
+        }
+
+        let stream = env
+            .call_method(
+                &connection,
+                "getInputStream",
+                "()Ljava/io/InputStream;",
+                &[],
+            )?
+            .l()?;
+        let encoding = env.new_string("UTF-8")?;
+        let scanner = env.new_object(
+            "java/util/Scanner",
+            "(Ljava/io/InputStream;Ljava/lang/String;)V",
+            &[JValue::Object(&stream), JValue::Object(&encoding)],
+        )?;
+        // The whole stream as one token. \A is "the beginning of input", so there is no
+        // second one, which is the shortest way to read a small document through JNI.
+        let whole = env.new_string("\\A")?;
+        let scanner = env
+            .call_method(
+                &scanner,
+                "useDelimiter",
+                "(Ljava/lang/String;)Ljava/util/Scanner;",
+                &[JValue::Object(&whole)],
+            )?
+            .l()?;
+
+        let text = if env.call_method(&scanner, "hasNext", "()Z", &[])?.z()? {
+            let token = env
+                .call_method(&scanner, "next", "()Ljava/lang/String;", &[])?
+                .l()?;
+            String::from(env.get_string(&JString::from(token))?)
+        } else {
+            String::new()
+        };
+
+        env.call_method(&connection, "disconnect", "()V", &[])?;
+        Ok(Ok(text))
+    })
+    .unwrap_or_else(|| Err("the phone could not be asked".into()))
+}
