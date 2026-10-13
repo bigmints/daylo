@@ -170,7 +170,9 @@ echo "::endgroup::"
 # newest record is routinely the helper's. The EXIT_SELF abort this job exists to explain
 # was headlined "reason=13 (OTHER KILLS BY SYSTEM)", which was the helper being reclaimed
 # 82ms later. The app's own record, one line below it, said reason=1 (EXIT_SELF).
-mine=$(.github/scripts/exits-since.sh "$started_at" "$PKG" <<< "${exits:-}")
+# Through bash, like every other script in this directory: none of them carries the
+# executable bit in the index, and a bit set in a working tree does not travel.
+mine=$(bash .github/scripts/exits-since.sh "$started_at" "$PKG" <<< "${exits:-}")
 exit_reason=$(sed -n 's/.* \(reason=[0-9]\+ .*\) subreason=.*/\1/p' <<< "$mine" | head -1)
 if [ -n "$exit_reason" ]; then
   echo "Android's word for the last exit: $exit_reason"
