@@ -9,6 +9,10 @@ mod checkin;
 // it serves: on Android and iOS nothing offers an update, so nothing asks how to install
 // one.
 mod packaging;
+// Compiles everywhere although only Android asks it anything, and that is deliberate: the
+// parts worth testing are the two that read a configuration block and a manifest, and a
+// module gated to Android is a module no `cargo test` on a laptop ever reads.
+mod updates;
 mod webview2;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -108,6 +112,37 @@ fn reminders_available() -> bool {
     true
 }
 
+/// The version Daylo's own update manifest names, or why it is not known.
+///
+/// Android only, and it exists because the updater plugin does not: it is not built for
+/// this platform, and the page cannot ask either, because the app's CSP is
+/// `default-src 'none'`. The address is the one in `tauri.conf.json`, the same file and
+/// the same line the desktop updater reads, so this adds no address to the app. See the
+/// head of src/updates.rs for why that matters beyond tidiness.
+///
+/// `async`, and that is load bearing rather than style. A Tauri command that is not async
+/// runs on the main thread, which on Android is the interface thread, and Android throws
+/// NetworkOnMainThreadException at anything that opens a socket there. The request then
+/// goes to a blocking thread, because it is a blocking call and the async runtime's
+/// workers are not for waiting on networks.
+///
+/// Returns the version as the manifest spells it and compares nothing. Whether that is
+/// newer, and whether this copy should be told at all, are decisions with rules attached
+/// and they live on the other side, next to the rest of them.
+#[cfg(target_os = "android")]
+#[tauri::command]
+async fn latest_version(app: tauri::AppHandle) -> Result<String, String> {
+    let endpoint = updates::endpoint(app.config().plugins.0.get("updater"))?;
+
+    let manifest = tauri::async_runtime::spawn_blocking(move || {
+        android::fetch_text(&endpoint, updates::MANIFEST_LIMIT as i32)
+    })
+    .await
+    .map_err(|_| "the check could not be started".to_string())??;
+
+    updates::version_in(&manifest)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Before anything else, because everything else assumes a window can exist. Without
@@ -168,6 +203,7 @@ pub fn run() {
             greet,
             save_dialog_available,
             reminders_available,
+            latest_version,
             checkin::checkin_fields,
             checkin::send_checkin,
             checkin::send_feedback

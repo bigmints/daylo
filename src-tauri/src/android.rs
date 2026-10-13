@@ -19,11 +19,16 @@ use jni::JavaVM;
 /// them means the same thing to the caller: the phone did not answer. A caller that
 /// cannot tell "no" from "could not ask" would have to guess, and this module exists so
 /// that the guessing happens in one place with a comment on it.
+fn context_is_there() -> bool {
+    let context = ndk_context::android_context();
+    !context.vm().is_null() && !context.context().is_null()
+}
+
 fn with_the_activity<T>(
     ask: impl FnOnce(&mut jni::JNIEnv, &JObject) -> jni::errors::Result<T>,
 ) -> Option<T> {
     let context = ndk_context::android_context();
-    if context.vm().is_null() || context.context().is_null() {
+    if !context_is_there() {
         return None;
     }
 
@@ -112,4 +117,140 @@ pub fn installer_package_name() -> Option<String> {
         )))
     })
     .flatten()
+}
+
+/// How long to wait for the other end, in milliseconds, for each of connecting and
+/// reading. Short on purpose: nothing waits on this answer and nobody asked for it, so a
+/// slow network should end in "could not find out" rather than in a request still open
+/// when the person has moved on.
+const PATIENCE: i32 = 5_000;
+
+/// Fetch a small text document with the phone's own HTTP client.
+///
+/// Java's and not a Rust one, which keeps a second TLS stack out of the APK and leaves
+/// the connection to the platform that is already trusted to make them. No headers are
+/// set and no body is sent: what goes out is what any request carries.
+///
+/// The caller must not be on the interface thread. Android throws
+/// NetworkOnMainThreadException there, and a Tauri command is on the main thread unless it
+/// is async, so the command that calls this hands it to a blocking thread.
+///
+/// Every failure is an Err and none of them is an empty string, because "nothing came
+/// back" and "nothing is there" are different answers and only one of them is news.
+pub fn fetch_text(url: &str, limit: i32) -> Result<String, String> {
+    with_the_activity(|env, _activity| {
+        let address = env.new_string(url)?;
+        let target = env.new_object(
+            "java/net/URL",
+            "(Ljava/lang/String;)V",
+            &[JValue::Object(&address)],
+        )?;
+        let connection = env
+            .call_method(&target, "openConnection", "()Ljava/net/URLConnection;", &[])?
+            .l()?;
+
+        env.call_method(
+            &connection,
+            "setConnectTimeout",
+            "(I)V",
+            &[JValue::Int(PATIENCE)],
+        )?;
+        env.call_method(
+            &connection,
+            "setReadTimeout",
+            "(I)V",
+            &[JValue::Int(PATIENCE)],
+        )?;
+
+        // Resolved against the object's own class, so these reach HttpURLConnection even
+        // though openConnection is typed as its parent.
+        let status = env
+            .call_method(&connection, "getResponseCode", "()I", &[])?
+            .i()?;
+        if status != 200 {
+            return Ok(Err(format!("the address answered {status}")));
+        }
+
+        // -1 means the other end did not say, which is allowed; a number that is too big
+        // is refused before anything is read rather than after.
+        let length = env
+            .call_method(&connection, "getContentLength", "()I", &[])?
+            .i()?;
+        if length > limit {
+            return Ok(Err(format!(
+                "the answer is {length} bytes, which is too much"
+            )));
+        }
+
+        let stream = env
+            .call_method(
+                &connection,
+                "getInputStream",
+                "()Ljava/io/InputStream;",
+                &[],
+            )?
+            .l()?;
+
+        // Read into a buffer one byte longer than the limit, so that filling it is itself
+        // the answer: anything that long has already gone past what will be read.
+        //
+        // The declared length above is an early refusal and nothing more. A server may
+        // not declare one at all, which is what chunked encoding is, and then the number
+        // is -1 and promises nothing. A limit that only holds when the other end
+        // volunteers its size is not a limit, and this used to be one: the reading itself
+        // had no bound.
+        let room = limit + 1;
+        let buffer = env.new_byte_array(room)?;
+        let mut filled: i32 = 0;
+        loop {
+            let read = env
+                .call_method(
+                    &stream,
+                    "read",
+                    "([BII)I",
+                    &[
+                        JValue::Object(&buffer),
+                        JValue::Int(filled),
+                        JValue::Int(room - filled),
+                    ],
+                )?
+                .i()?;
+            if read < 0 {
+                break;
+            }
+            filled += read;
+            if filled > limit {
+                return Ok(Err(format!("the answer is longer than {limit} bytes")));
+            }
+        }
+
+        let encoding = env.new_string("UTF-8")?;
+        let decoded = env.new_object(
+            "java/lang/String",
+            "([BIILjava/lang/String;)V",
+            &[
+                JValue::Object(&buffer),
+                JValue::Int(0),
+                JValue::Int(filled),
+                JValue::Object(&encoding),
+            ],
+        )?;
+        let text = String::from(env.get_string(&JString::from(decoded))?);
+
+        env.call_method(&connection, "disconnect", "()V", &[])?;
+        Ok(Ok(text))
+    })
+    .unwrap_or_else(|| {
+        // Two different failures arrive here as the same None: a Java exception that the
+        // helper cleared, which is what a timeout, an unknown host or a broken connection
+        // look like from this side, and a context that was not there to ask at all. The
+        // second cannot really happen after the app has started, so saying which is worth
+        // the one call it costs: a message that describes the wrong failure sends whoever
+        // reads it looking in the wrong place.
+        if context_is_there() {
+            Err("the address did not answer".into())
+        } else {
+            Err("the phone could not be asked".into())
+        }
+    })
 }
