@@ -97,6 +97,10 @@ echo "::endgroup::"
 
 # From here on, everything in the log belongs to this run.
 adb logcat -c
+# The phone's own clock, not the runner's: the exit records below are stamped by the
+# phone, and on an emulator the two drift. Read before the start so that nothing this run
+# does can land before it.
+started_at=$(adb shell date "+%Y-%m-%d %H:%M:%S" | tr -d '\r')
 adb shell am start -W -n "$ACTIVITY"
 
 # Thirty seconds to reach the foreground. A Tauri app on a cold emulator takes a few
@@ -129,7 +133,9 @@ adb pull /data/local/tmp/smoke.png "$SHOT" || true
 
 echo "::group::Android's own account of why anything died"
 exits=""
+asked_ok=""
 if exits=$(adb shell dumpsys activity exit-info "$PKG" 2>&1); then
+  asked_ok=yes
   echo "${exits:-(nothing recorded)}"
 else
   # Said out loud rather than swallowed: without this one of the checks below would be
@@ -148,12 +154,26 @@ echo "::endgroup::"
 # parentheses of its own — "APP CRASH(NATIVE)" — and a pattern that stopped at the first
 # closing bracket read the subreason instead and reported an exit as UNKNOWN while Android
 # was calling it a native crash.
-exit_reason=$(sed -n 's/.* \(reason=[0-9]\+ .*\) subreason=.*/\1/p' <<< "${exits:-}" | head -1)
+#
+# Judged on this run's records alone, though the whole dump is printed above. Android
+# keeps about sixteen of them and counts the app's WebView helpers as the app, so the
+# dump answers "how has this package ended, lately" and the question here is "did it die
+# just now". Greping the whole dump confused the two: in the slow start job, one real
+# abort in the first run was reported again in the eight runs after it, each quoting an
+# unrelated reason from a newer record, and the reports stopped only when the real record
+# fell off the end of the buffer. Nine of twelve results were about one crash.
+mine=$(.github/scripts/exits-since.sh "$started_at" <<< "${exits:-}")
+exit_reason=$(sed -n 's/.* \(reason=[0-9]\+ .*\) subreason=.*/\1/p' <<< "$mine" | head -1)
 if [ -n "$exit_reason" ]; then
   echo "Android's word for the last exit: $exit_reason"
+elif [ -n "$asked_ok" ]; then
+  # Only when the question was actually asked. Without this guard an image that cannot
+  # answer would be reported as an image that answered "nothing died", which is the
+  # difference between knowing and not asking.
+  echo "Android recorded no exit for $PKG since this run started it."
 fi
 
-if grep -q "CRASH" <<< "${exits:-}"; then
+if grep -q "CRASH" <<< "$mine"; then
   # Android's own record says a crash, and `fail` now digs the lines out of logcat rather
   # than printing the end of it. Those lines are the whole difference between "it died"
   # and knowing what killed it: exit-info records `trace=null` for a native abort, so
