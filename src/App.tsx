@@ -31,6 +31,23 @@ import { UpdateDot } from './components/updates/UpdateDot'
 import { UpdateNotice } from './components/updates/UpdateNotice'
 import { sendComment, sendRating, sendShown } from './lib/feedback'
 import { FEEDBACK_MAILTO, openMailto, shouldInviteFeedback } from './lib/feedbackInvite'
+import { openLink } from './lib/openLink'
+
+/**
+ * The Microsoft Store's own rating page for Daylo, opened by the Store app itself.
+ *
+ * `ms-windows-store:` is not one of the schemes the opener plugin allows out of the box,
+ * which allows only http, https, mailto and tel. It is allowed in
+ * capabilities/desktop.json, and without that entry the call is refused by the plugin
+ * rather than by Windows, which looks exactly like somebody deciding not to go.
+ *
+ * What is allowed there is this address and nothing else, which takes one oddity: the
+ * scope is matched as a glob, where `?` means any single character, so the query mark is
+ * written `[?]` to mean itself. With a bare `?` the entry would also have allowed
+ * `ms-windows-store://review/XProductId=...`, and a scope that is wider than the sentence
+ * next to it is a sentence that stops being read.
+ */
+const STORE_REVIEW = 'ms-windows-store://review/?ProductId=9NJM37WMMC5Z'
 import { formatDate } from './lib/dates'
 import { sendCheckinIfDue, startCheckinOnNewInstall } from './lib/checkin'
 
@@ -137,6 +154,12 @@ function App() {
   // CSP forbids reaching any host, so there is nothing to show a setting for.
   const checkinFields = useCheckinFields()
   const canCheckIn = checkinFields !== null
+  // Only a copy from the Microsoft Store, and only the first time it is asked anything.
+  // The word comes from the same place the check-in reads it, so the two cannot disagree
+  // about where this copy came from.
+  const storeReviewOffered = useCalendarStore((s) => s.storeReviewOffered)
+  const markStoreReviewOffered = useCalendarStore((s) => s.markStoreReviewOffered)
+  const offerStoreReview = checkinFields?.source === 'store' && !storeReviewOffered
   const logs = useCalendarStore((state) => state.logs)
   const firstOpenedAt = useCalendarStore((state) => state.firstOpenedAt)
   const feedbackInviteSeen = useCalendarStore((state) => state.feedbackInviteSeen)
@@ -622,7 +645,31 @@ function App() {
                   setQuestionClosed(true)
                   setAskedFromMenu(false)
                 }}
-                onRate={(answer, stars) => void sendRating(answer, stars)}
+                onRate={(answer, stars) => {
+                  // Marked here because being shown is what spends it, and the line is
+                  // shown the moment a score is given. The dialog took its own copy of
+                  // the offer, so this cannot take the line away while it is being read.
+                  if (offerStoreReview) markStoreReviewOffered()
+                  void sendRating(answer, stars)
+                }}
+                offerStoreReview={offerStoreReview}
+                onStoreReview={() => {
+                  void openLink(STORE_REVIEW).then((result) => {
+                    if (result === 'failed') {
+                      showToast('Could not open the Microsoft Store.', 'error')
+                    }
+                  })
+                }}
+                onWriteToUs={() => {
+                  void openMailto(FEEDBACK_MAILTO).then((result) => {
+                    if (result === 'failed') {
+                      showToast(
+                        'Could not open an email app. You can write to daylo@henfrydls.com.',
+                        'error'
+                      )
+                    }
+                  })
+                }}
                 // The star left the moment it was pressed and needs no receipt. This one was
                 // asked for, by somebody who wrote something and pressed a button, and the
                 // reason this dialog exists at all is a channel that failed without saying so.

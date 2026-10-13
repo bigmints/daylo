@@ -7,6 +7,8 @@ const onShown = vi.fn()
 const onClose = vi.fn()
 const onRate = vi.fn()
 const onComment = vi.fn()
+const onStoreReview = vi.fn()
+const onWriteToUs = vi.fn()
 
 beforeEach(() => {
   onShown.mockReset()
@@ -14,6 +16,8 @@ beforeEach(() => {
   onRate.mockReset()
   // The dialog waits on this now, so it has to answer.
   onComment.mockReset().mockResolvedValue(true)
+  onStoreReview.mockReset()
+  onWriteToUs.mockReset()
 })
 
 const show = (props: Partial<Parameters<typeof FeedbackRating>[0]> = {}) =>
@@ -25,6 +29,9 @@ const show = (props: Partial<Parameters<typeof FeedbackRating>[0]> = {}) =>
       onRate={onRate}
       onComment={onComment}
       withCheckinId={false}
+      offerStoreReview={false}
+      onStoreReview={onStoreReview}
+      onWriteToUs={onWriteToUs}
       {...props}
     />
   )
@@ -200,16 +207,7 @@ describe('the number this answer travels under', () => {
 
 describe('what it says it sends', () => {
   it('names the number when there is one', async () => {
-    render(
-      <FeedbackRating
-        isOpen
-        onShown={onShown}
-        onClose={onClose}
-        onRate={onRate}
-        onComment={onComment}
-        withCheckinId
-      />
-    )
+    show({ withCheckinId: true })
     await userEvent.click(stars()[4])
 
     expect(screen.getByTestId('feedback-rating-note')).toHaveTextContent(
@@ -224,5 +222,64 @@ describe('what it says it sends', () => {
     expect(screen.getByTestId('feedback-rating-note').textContent).toBe(
       'It arrives without your name.'
     )
+  })
+})
+
+describe('the two lines after the stars', () => {
+  const rate = async (props = {}) => {
+    const user = userEvent.setup()
+    show(props)
+    await user.click(stars()[2])
+    return user
+  }
+
+  // Microsoft's own guidance: a rating feature inside an app has to send everybody to the
+  // Store, whatever they pressed. Offering it only to the happy ones is rating
+  // manipulation, and this repository is public. So the line follows any score.
+  it('offers the Store to a copy from the Store, whatever the score', async () => {
+    const user = await rate({ offerStoreReview: true })
+
+    await user.click(screen.getByTestId('feedback-store-review'))
+    expect(onStoreReview).toHaveBeenCalled()
+  })
+
+  it('offers it after one star as readily as after five', async () => {
+    const user = userEvent.setup()
+    show({ offerStoreReview: true })
+
+    await user.click(stars()[0])
+
+    expect(screen.getByTestId('feedback-store-review')).toBeInTheDocument()
+    await user.click(screen.getByTestId('feedback-store-review'))
+    expect(onStoreReview).toHaveBeenCalled()
+  })
+
+  it('says nothing about the Store to a copy that did not come from it', async () => {
+    await rate({ offerStoreReview: false })
+
+    expect(screen.queryByTestId('feedback-store-review')).not.toBeInTheDocument()
+  })
+
+  // An address, not a request. Whoever pressed one star is the person we know least
+  // about, so this is for every copy and every score.
+  it('leaves an address for anyone who wants to talk', async () => {
+    const user = await rate()
+
+    await user.click(screen.getByTestId('feedback-write-to-us'))
+    expect(onWriteToUs).toHaveBeenCalled()
+  })
+
+  // The red line already carries the address. Two of the same address, one of them in
+  // red, reads as an instruction rather than an invitation.
+  it('steps out of the way when sending failed', async () => {
+    onComment.mockResolvedValue(false)
+    const user = userEvent.setup()
+    show()
+    await user.click(stars()[2])
+    await user.type(screen.getByPlaceholderText(/Anything to add/), 'hello')
+    await user.click(screen.getByRole('button', { name: 'Send' }))
+
+    await waitFor(() => expect(screen.getByTestId('feedback-rating-failed')).toBeInTheDocument())
+    expect(screen.queryByTestId('feedback-write-to-us')).not.toBeInTheDocument()
   })
 })
