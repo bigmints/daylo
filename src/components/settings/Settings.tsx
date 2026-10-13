@@ -306,11 +306,11 @@ export function Settings({
                           do is say what is happening and open the door to it. The row goes
                           away by itself when the person comes back having granted it. */}
                       <p className="text-sm text-gray-500">
-                        Android can move this by an hour or more, because it is not allowed to wake
-                        the phone at the time you set.
+                        Android may send this an hour or more late, unless Daylo is allowed to
+                        remind you on time.
                       </p>
                       <GoRow
-                        label="Let it arrive on time"
+                        label="Allow on-time reminders"
                         onClick={() => void reminder.askForTime()}
                         testId="reminder-exact"
                       />
