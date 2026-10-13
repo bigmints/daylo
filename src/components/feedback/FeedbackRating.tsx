@@ -26,6 +26,21 @@ interface FeedbackRatingProps {
    * bottom says which, so the two have to be given the same fact.
    */
   withCheckinId: boolean
+  /**
+   * Whether to point this copy at the Microsoft Store's own rating, which is true for a
+   * copy installed from the Store that has not been pointed there before.
+   *
+   * It follows any score and not a good one. Microsoft's own guidance says a rating
+   * feature inside an app has to send everybody to the Store whatever they pressed, and
+   * sending only the happy ones is what its developer code of conduct calls rating
+   * manipulation. Google says the same for Play and its API cannot filter by score at
+   * all. So there is no version of this that asks only the people who liked it.
+   */
+  offerStoreReview: boolean
+  /** Open the Store's page for rating Daylo. */
+  onStoreReview: () => void
+  /** Open a letter to the address in the line, and say so if nothing opened. */
+  onWriteToUs: () => void
 }
 
 /**
@@ -59,12 +74,19 @@ export function FeedbackRating({
   onRate,
   onComment,
   withCheckinId,
+  offerStoreReview,
+  onStoreReview,
+  onWriteToUs,
 }: FeedbackRatingProps) {
   // Made here and kept for as long as this is mounted, which is the whole of its life:
   // unmounting is the only way it goes, and the next question makes another one. A number
   // that outlived the dialog would be an identifier, and this one may not be.
   const [answer] = useState(newAnswer)
   const [rated, setRated] = useState<number | null>(null)
+  // Taken once, when the score is given, because showing the line is what spends it: the
+  // flag behind the prop is marked at the same moment, and a line that vanished while
+  // somebody was reading it would be the app taking the offer back.
+  const [offeringStore, setOfferingStore] = useState(false)
   const [text, setText] = useState('')
   // 'idle' until Send, 'sending' while it is in the air, 'failed' when it did not go.
   // There is no 'sent': that one closes.
@@ -87,6 +109,7 @@ export function FeedbackRating({
   // the form is optional.
   const rate = (stars: number) => {
     setRated(stars)
+    setOfferingStore(offerStoreReview)
     onRate(answer, stars)
   }
 
@@ -201,6 +224,36 @@ export function FeedbackRating({
               ? 'It arrives without your name, with the same random number as the check-in.'
               : 'It arrives without your name.'}
           </p>
+          {offeringStore ? (
+            <p className="mt-2 text-sm text-gray-600">
+              {'You can also '}
+              <button
+                type="button"
+                onClick={onStoreReview}
+                data-testid="feedback-store-review"
+                className="rounded text-emerald-700 underline focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+              >
+                rate Daylo in the Microsoft Store
+              </button>
+              .
+            </p>
+          ) : null}
+          {/* Not while the red line is up: that one already carries the address, and the
+              same address twice, one of them in red, reads as an instruction rather than
+              an invitation. */}
+          {sending === 'failed' ? null : (
+            <p className="mt-2 text-sm text-gray-600">
+              {'Tell us how you use Daylo: '}
+              <button
+                type="button"
+                onClick={onWriteToUs}
+                data-testid="feedback-write-to-us"
+                className="rounded text-emerald-700 underline focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+              >
+                daylo@henfrydls.com
+              </button>
+            </p>
+          )}
         </>
       )}
     </Modal>

@@ -165,6 +165,12 @@ interface CalendarState {
   firstOpenedAt: string | null
   /** Whether the invitation to write has been put. One invitation, not one drawing. */
   feedbackInviteSeen: boolean
+  /**
+   * Whether this copy has already been pointed at the Microsoft Store's own rating.
+   * Once per installation: a second ask is nagging, and the first one was either taken
+   * or deliberately ignored.
+   */
+  storeReviewOffered: boolean
 
   /**
    * Whether the check-in is on. On from the first launch of a new installation, off for
@@ -263,6 +269,7 @@ interface CalendarState {
   /** Records the first day, once. Called when the store finishes hydrating. */
   markOpened: () => void
   markFeedbackInviteSeen: () => void
+  markStoreReviewOffered: () => void
   /** The question was put. Spends it for good and keeps it open for this session. */
   markFeedbackAsked: () => void
   /** The update card for this version has been put. */
@@ -318,6 +325,7 @@ export const useCalendarStore = create<CalendarState>()(
 
       firstOpenedAt: null,
       feedbackInviteSeen: false,
+      storeReviewOffered: false,
       checkinEnabled: false,
       checkinNoticeSeen: false,
       checkinId: null,
@@ -352,6 +360,8 @@ export const useCalendarStore = create<CalendarState>()(
         ),
 
       markFeedbackInviteSeen: () => set({ feedbackInviteSeen: true }),
+
+      markStoreReviewOffered: () => set({ storeReviewOffered: true }),
 
       markFeedbackAsked: () => set({ feedbackInviteSeen: true, _feedbackAsked: true }),
 
@@ -515,6 +525,7 @@ export const useCalendarStore = create<CalendarState>()(
         reminderOffered: state.reminderOffered,
         firstOpenedAt: state.firstOpenedAt,
         feedbackInviteSeen: state.feedbackInviteSeen,
+        storeReviewOffered: state.storeReviewOffered,
         checkinEnabled: state.checkinEnabled,
         checkinNoticeSeen: state.checkinNoticeSeen,
         checkinId: state.checkinId,
