@@ -1,3 +1,8 @@
+// Android only, and it is the only module that is: everything inside it is a JNI call,
+// so there is nothing in it that compiles anywhere else. What it produces is turned into
+// words by `packaging`, which compiles everywhere and is where the tests are.
+#[cfg(target_os = "android")]
+mod android;
 mod checkin;
 // The module compiles everywhere, because the check-in asks it on every platform which
 // word describes this copy. The command inside it is still desktop only, like the updater

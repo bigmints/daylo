@@ -97,8 +97,9 @@ pub fn install_format() -> Option<&'static str> {
 /// today, and one Linux package from another, because they are installed by different
 /// people for different reasons.
 ///
-/// Takes the answer rather than asking for it, so every word can be pinned by a test.
-pub fn installed_from(format: Option<&str>) -> &'static str {
+/// Takes both answers rather than asking for them, so every word can be pinned by a test.
+/// `installer` is only ever Some on a phone, and only the Android arm reads it.
+pub fn installed_from(format: Option<&str>, installer: Option<&str>) -> &'static str {
     match format {
         Some("store") => "store",
         Some("nsis") | Some("msi") => "installer",
@@ -108,8 +109,9 @@ pub fn installed_from(format: Option<&str>) -> &'static str {
         Some("macos") => "macos",
         // No bundler patches an APK, so there is nothing to read there. Android is the one
         // platform where an unstamped binary is not a development build: it is the only
-        // thing we ship for it.
-        None if cfg!(target_os = "android") => "apk",
+        // thing we ship for it. Until 1.5 that settled it and the word was always "apk";
+        // now there are two doors and the phone is asked which one this copy came through.
+        None if cfg!(target_os = "android") => android_source(installer),
         // Everything else: a binary nobody packaged, and a format this version has never
         // heard of. Both are "we do not know", and saying so is better than a guess that
         // would be counted as if it were a fact.
@@ -117,45 +119,107 @@ pub fn installed_from(format: Option<&str>) -> &'static str {
     }
 }
 
+/// Google Play's own installer package, and the only name that means Play.
+const PLAY_STORE: &str = "com.android.vending";
+
+/// Which Android door a copy came through, from the package that installed it.
+///
+/// Android records who installed an app, and from 1.5 that is worth asking: Daylo is on
+/// Play and is also a file on the site, and the two are installed by different people for
+/// different reasons. Play answers with its own package name. Everything else answers
+/// with the name of whatever app put the file there, or with nothing at all, and all of
+/// those mean the same thing: a copy somebody installed themselves.
+///
+/// Takes the answer rather than asking for it, like `installed_from`, so every word is
+/// pinned by a test that runs on any machine rather than only on a phone.
+pub fn android_source(installer: Option<&str>) -> &'static str {
+    match installer {
+        Some(PLAY_STORE) => "play",
+        _ => "apk",
+    }
+}
+
 /// Where this copy came from, for the check-in, on every platform.
 ///
-/// No cfg anywhere in this path, which is the point: on Android the answer is None and the
-/// table above turns that into "apk", so the branch written for Android is the branch
-/// Android runs. The first attempt gated this module to desktop, and the Android build
-/// found it in a minute: the code for that platform had been compiled out of it.
+/// The table is reached by the same line of code everywhere, which is the point. The first
+/// attempt gated this module to desktop, and the Android build found it in a minute: the
+/// code for that platform had been compiled out of it.
+///
+/// One cfg, and it is in `android_installer` below rather than here: asking a phone who
+/// installed it is a question with no meaning off a phone, so the two bodies answer it and
+/// the mapping stays one branch for every platform.
 pub fn checkin_source() -> &'static str {
-    installed_from(install_format())
+    installed_from(install_format(), android_installer().as_deref())
+}
+
+/// Who installed this copy, asked of Android. See `crate::android`.
+#[cfg(target_os = "android")]
+fn android_installer() -> Option<String> {
+    crate::android::installer_package_name()
+}
+
+/// Nothing to ask: no other platform records who installed anything, and the arm of the
+/// table that reads this one is Android's.
+#[cfg(not(target_os = "android"))]
+fn android_installer() -> Option<String> {
+    None
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{installed_as, installed_from, BundleType};
+    use super::{android_source, installed_as, installed_from, BundleType};
 
     /// Every word the check-in can carry, and what it is for. A panel that counts these is
     /// only as good as the day somebody adds a format and forgets this line.
     #[test]
     fn every_way_in_has_a_word() {
-        assert_eq!(installed_from(Some("store")), "store");
-        assert_eq!(installed_from(Some("nsis")), "installer");
-        assert_eq!(installed_from(Some("msi")), "installer");
-        assert_eq!(installed_from(Some("appimage")), "appimage");
-        assert_eq!(installed_from(Some("deb")), "deb");
-        assert_eq!(installed_from(Some("rpm")), "rpm");
-        assert_eq!(installed_from(Some("macos")), "macos");
+        assert_eq!(installed_from(Some("store"), None), "store");
+        assert_eq!(installed_from(Some("nsis"), None), "installer");
+        assert_eq!(installed_from(Some("msi"), None), "installer");
+        assert_eq!(installed_from(Some("appimage"), None), "appimage");
+        assert_eq!(installed_from(Some("deb"), None), "deb");
+        assert_eq!(installed_from(Some("rpm"), None), "rpm");
+        assert_eq!(installed_from(Some("macos"), None), "macos");
     }
 
     /// The two Windows installers answer the same thing, which is the whole reason this
     /// mapping exists apart from the updater's.
     #[test]
     fn windows_installers_are_one_door() {
-        assert_eq!(installed_from(Some("nsis")), installed_from(Some("msi")));
-        assert_ne!(installed_from(Some("nsis")), installed_from(Some("store")));
+        assert_eq!(installed_from(Some("nsis"), None), installed_from(Some("msi"), None));
+        assert_ne!(installed_from(Some("nsis"), None), installed_from(Some("store"), None));
+    }
+
+    /// Android has two doors now, and only one of them has a name.
+    ///
+    /// Play's installer package is `com.android.vending` and nothing else is. Everything
+    /// else that can put an APK on a phone leaves either its own name here (a browser, a
+    /// file manager, the system installer) or nothing at all (adb), and all of those are
+    /// the same fact: somebody installed a file themselves. Folding them together is the
+    /// answer rather than a shortcut, because the question the panel asks is which door
+    /// people came in by, not which app held it open.
+    #[test]
+    fn play_is_the_only_android_door_with_a_name() {
+        assert_eq!(android_source(Some("com.android.vending")), "play");
+        assert_eq!(android_source(None), "apk");
+        assert_eq!(android_source(Some("com.android.chrome")), "apk");
+        assert_eq!(android_source(Some("com.google.android.packageinstaller")), "apk");
+        assert_eq!(android_source(Some("org.fdroid.fdroid")), "apk");
+    }
+
+    /// The word is Play's package name and not a prefix of it. A phone that answers with
+    /// something merely similar is answering something else.
+    #[test]
+    fn only_that_exact_package_is_play() {
+        assert_eq!(android_source(Some("com.android.vending.fake")), "apk");
+        assert_eq!(android_source(Some("vending")), "apk");
+        assert_eq!(android_source(Some("")), "apk");
     }
 
     /// A word this version does not know is not silently folded into one it does.
     #[test]
     fn an_unknown_format_says_unknown() {
-        assert_eq!(installed_from(Some("flatpak")), "unknown");
+        assert_eq!(installed_from(Some("flatpak"), None), "unknown");
     }
 
     /// Nothing packaged it. On Android that is every copy; everywhere else it is a build
@@ -167,7 +231,34 @@ mod tests {
         } else {
             "unknown"
         };
-        assert_eq!(installed_from(None), expected);
+        assert_eq!(installed_from(None, None), expected);
+    }
+
+    /// The table is where the installer is read, and only where it can mean anything.
+    ///
+    /// On Android an unstamped binary is every copy, so the installer decides the word.
+    /// Everywhere else an unstamped binary is a build somebody made themselves, and no
+    /// installer name can turn it into a copy from Play: a desktop that somehow answered
+    /// `com.android.vending` would still be "unknown", which is the honest word for it.
+    #[test]
+    fn the_installer_is_read_where_it_means_something() {
+        if cfg!(target_os = "android") {
+            assert_eq!(installed_from(None, Some("com.android.vending")), "play");
+            assert_eq!(installed_from(None, Some("com.android.chrome")), "apk");
+            assert_eq!(installed_from(None, None), "apk");
+        } else {
+            assert_eq!(installed_from(None, Some("com.android.vending")), "unknown");
+            assert_eq!(installed_from(None, None), "unknown");
+        }
+    }
+
+    /// A packaged copy is packaged whatever the phone says installed it. Nothing on the
+    /// desktop supplies this argument today, and the day something does, a .deb does not
+    /// become a copy from Play because a package manager had a name.
+    #[test]
+    fn the_installer_cannot_overrule_a_format() {
+        assert_eq!(installed_from(Some("deb"), Some("com.android.vending")), "deb");
+        assert_eq!(installed_from(Some("store"), Some("com.android.vending")), "store");
     }
 
     /// The mapping, spelled out. It exists so that a rename upstream is a compile error

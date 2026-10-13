@@ -6,7 +6,9 @@ version = 4
 name = "activity-tracker"
 version = "1.4.2"
 dependencies = [
+ "jni",
  "log",
+ "ndk-context",
  "rfd",
  "serde",
  "serde_json",
