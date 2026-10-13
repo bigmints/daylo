@@ -39,9 +39,20 @@ trap 'echo "::error::The smoke script itself failed at line $LINENO. That is a b
 # an evening for exactly that. The panic and the signal were in the artifact all along,
 # 964 lines from the end, while the job's own output began after the app was already
 # dead and said nothing about why.
+# One pattern, used by the check that decides and by the message that explains, because
+# two of them drift and the drift is invisible: the deciding one would fire and the
+# explaining one would print nothing, which is how the first version of this read a log
+# full of FORTIFY aborts and showed only "beginning of crash".
+#
+# The level letter is what makes it general. logcat marks fatal lines with F in the column
+# after the pids, and that catches what libc writes on an abort, what DEBUG writes for a
+# tombstone, and whatever Android marks fatal next year without anybody adding it here.
+# The named ones stay because a Rust panic is logged at I by wry's stdout bridge, which no
+# level filter would ever find.
+FATAL='beginning of crash|FATAL EXCEPTION|Fatal signal|FORTIFY|panicked at|RustStdoutStderr.*(panicked|Err)|^[0-9-]+ [0-9:.]+ +[0-9]+ +[0-9]+ F '
+
 fatal_lines() {
-  grep -nE "beginning of crash|FATAL EXCEPTION|Fatal signal|panicked at|RustStdoutStderr.*(panicked|Err)" \
-    "$LOG" 2>/dev/null | head -40
+  grep -nE "$FATAL" "$LOG" 2>/dev/null | head -40
 }
 
 fail() {
@@ -150,9 +161,9 @@ fi
 # one this looked only for those two. libc writes its own epitaph and logcat marks the
 # spot: "--------- beginning of crash", then an F line. FORTIFY aborts land here, and so
 # does any signal.
-if grep -qE "beginning of crash|^[0-9-]+ [0-9:.]+ +[0-9]+ +[0-9]+ F |FATAL EXCEPTION|RustStdoutStderr.*panicked at|Fatal signal" "$LOG"; then
+if grep -qE "$FATAL" "$LOG"; then
   echo "::group::What logcat says went wrong"
-  grep -nE "beginning of crash| F (libc|DEBUG) |FATAL EXCEPTION|RustStdoutStderr|Fatal signal" "$LOG" | head -40
+  fatal_lines
   echo "::endgroup::"
   fail "The app logged a fatal error. The lines are in the group above and the whole log is in the artifact."
 fi
