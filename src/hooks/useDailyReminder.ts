@@ -1,6 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useCalendarStore } from '../store'
-import { disableReminder, enableReminder, formatReminderTime } from '../lib/reminders'
+import {
+  askForExactAlarms,
+  disableReminder,
+  enableReminder,
+  exactAlarmsAllowed,
+  formatReminderTime,
+} from '../lib/reminders'
 import { useToast } from '../components/ui'
 
 interface DailyReminder {
@@ -13,6 +19,13 @@ interface DailyReminder {
   busy: boolean
   /** What the phone said when it refused, when it said anything. */
   failure: string | null
+  /**
+   * Whether it will arrive at the time it was set for. False means it still arrives, but
+   * Android is free to move it, so the screen says so and offers the way to change it.
+   */
+  onTime: boolean
+  /** Open the phone's own screen where arriving on time is allowed. */
+  askForTime: () => Promise<void>
   turnOn: (hour: number, minute: number) => Promise<boolean>
   turnOff: () => Promise<void>
   changeTime: (hour: number, minute: number) => void
@@ -38,6 +51,35 @@ export function useDailyReminder(): DailyReminder {
   const { showToast } = useToast()
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
+  // True until something says otherwise, so a phone that cannot be asked is a phone the
+  // screen says nothing about.
+  const [onTime, setOnTime] = useState(true)
+
+  // Only while the reminder is on: there is nothing to say about the punctuality of a
+  // reminder nobody has set, and turning it on re-runs this because `enabled` changes.
+  //
+  // Asked again whenever the app comes back to the front, because the permission is
+  // granted on a screen that belongs to the phone and not to Daylo. Coming back is the
+  // only moment the app can learn the answer changed, and without it the sheet would go
+  // on offering a fix for something already fixed.
+  useEffect(() => {
+    if (!enabled) return
+    let listening = true
+    const ask = () => {
+      void exactAlarmsAllowed().then((allowed) => {
+        if (listening) setOnTime(allowed)
+      })
+    }
+    ask()
+    const onReturn = () => {
+      if (document.visibilityState === 'visible') ask()
+    }
+    document.addEventListener('visibilitychange', onReturn)
+    return () => {
+      listening = false
+      document.removeEventListener('visibilitychange', onReturn)
+    }
+  }, [enabled])
 
   // Changes take effect as they are made, the way a phone's own settings behave.
   const turnOn = async (nextHour: number, nextMinute: number): Promise<boolean> => {
@@ -89,6 +131,12 @@ export function useDailyReminder(): DailyReminder {
     setReminder(false, nextHour, nextMinute)
   }
 
+  // Nothing is awaited beyond the screen opening, and nothing is re-asked here: whatever
+  // the person decides over there arrives through the effect above when they come back.
+  const askForTime = async (): Promise<void> => {
+    await askForExactAlarms()
+  }
+
   return {
     enabled,
     hour,
@@ -96,6 +144,8 @@ export function useDailyReminder(): DailyReminder {
     at: formatReminderTime(hour, minute),
     busy,
     failure,
+    onTime,
+    askForTime,
     turnOn,
     turnOff,
     changeTime,

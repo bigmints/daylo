@@ -1,15 +1,19 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { renderHook, act } from '@testing-library/react'
+import { renderHook, act, waitFor } from '@testing-library/react'
 import { useDailyReminder } from './useDailyReminder'
 import { useCalendarStore } from '../store'
 
 const enableReminder = vi.hoisted(() => vi.fn())
 const disableReminder = vi.hoisted(() => vi.fn())
+const exactAlarmsAllowed = vi.hoisted(() => vi.fn())
+const askForExactAlarms = vi.hoisted(() => vi.fn())
 
 vi.mock('../lib/reminders', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../lib/reminders')>()),
   enableReminder,
   disableReminder,
+  exactAlarmsAllowed,
+  askForExactAlarms,
 }))
 
 const showToast = vi.fn()
@@ -22,6 +26,8 @@ const reminder = () => useCalendarStore.getState()
 
 beforeEach(() => {
   enableReminder.mockReset().mockResolvedValue({ outcome: 'on' })
+  exactAlarmsAllowed.mockReset().mockResolvedValue(true)
+  askForExactAlarms.mockReset().mockResolvedValue(true)
   disableReminder.mockReset().mockResolvedValue(undefined)
   showToast.mockReset()
   useCalendarStore.setState({ reminderEnabled: false, reminderHour: 21, reminderMinute: 0 })
@@ -199,5 +205,61 @@ describe('what it says', () => {
     const { result } = renderHook(() => useDailyReminder())
 
     expect(result.current.at).toBe('8:00 PM')
+  })
+})
+
+describe('whether it will arrive on time', () => {
+  it('asks the phone when the reminder is already on', async () => {
+    useCalendarStore.setState({ reminderEnabled: true })
+    exactAlarmsAllowed.mockResolvedValue(false)
+
+    const { result } = renderHook(() => useDailyReminder())
+    await waitFor(() => expect(result.current.onTime).toBe(false))
+  })
+
+  it('says nothing about a reminder nobody has set', async () => {
+    useCalendarStore.setState({ reminderEnabled: false })
+
+    renderHook(() => useDailyReminder())
+    await waitFor(() => expect(enableReminder).not.toHaveBeenCalled())
+    expect(exactAlarmsAllowed).not.toHaveBeenCalled()
+  })
+
+  // The permission is granted on a screen that belongs to the phone, not to Daylo, so
+  // coming back is the only moment the app can learn the answer changed. Without this the
+  // sheet would keep offering a fix for something already fixed.
+  it('asks again when the app comes back to the front', async () => {
+    useCalendarStore.setState({ reminderEnabled: true })
+    exactAlarmsAllowed.mockResolvedValue(false)
+    const { result } = renderHook(() => useDailyReminder())
+    await waitFor(() => expect(result.current.onTime).toBe(false))
+
+    exactAlarmsAllowed.mockResolvedValue(true)
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+
+    await waitFor(() => expect(result.current.onTime).toBe(true))
+  })
+
+  it('asks again after the reminder is turned on', async () => {
+    exactAlarmsAllowed.mockResolvedValue(false)
+    const { result } = renderHook(() => useDailyReminder())
+
+    await act(async () => {
+      await result.current.turnOn(21, 0)
+    })
+
+    await waitFor(() => expect(result.current.onTime).toBe(false))
+  })
+
+  it('opens the phone screen where it is granted', async () => {
+    const { result } = renderHook(() => useDailyReminder())
+
+    await act(async () => {
+      await result.current.askForTime()
+    })
+
+    expect(askForExactAlarms).toHaveBeenCalled()
   })
 })

@@ -112,6 +112,46 @@ export async function remindersAvailable(): Promise<boolean> {
 }
 
 /**
+ * Whether the reminder will arrive at the time it was set for.
+ *
+ * False does not mean it will not arrive. It means Android is free to move it, by about
+ * an hour on a phone in use and further out of a deep doze, which is what an inexact
+ * alarm is. The screen uses this to decide whether to say so and offer the way to change
+ * it, never whether to schedule anything.
+ *
+ * True where the question cannot be put at all, which is the same direction the Rust side
+ * takes and for the same reason: the only thing this decides is whether to offer a fix,
+ * and offering one for a problem that may not exist is worse than saying nothing.
+ */
+export async function exactAlarmsAllowed(): Promise<boolean> {
+  if (!isTauri()) {
+    return true
+  }
+  try {
+    return await invoke<boolean>('exact_alarms_allowed')
+  } catch {
+    return true
+  }
+}
+
+/**
+ * Open the phone's own "Alarms & reminders" screen, and say whether it opened.
+ *
+ * Opening a screen grants nothing. The person decides there, and the app finds out by
+ * asking again when it comes back, which is why nothing here waits for an answer.
+ */
+export async function askForExactAlarms(): Promise<boolean> {
+  if (!isTauri()) {
+    return false
+  }
+  try {
+    return await invoke<boolean>('ask_for_exact_alarms')
+  } catch {
+    return false
+  }
+}
+
+/**
  * Put the reminder on the phone's alarm queue, and say whether it got there.
  *
  * Called through invoke rather than through the plugin's own sendNotification, which is
@@ -167,13 +207,16 @@ async function putOnTheQueue(hour: number, minute: number): Promise<string | nul
  * means even at its best, and why the wording says "usually close" rather than a number.
  *
  * Asking for the exact-alarm permission was weighed and refused here, and that decision
- * has since been reversed: Henfry saw other apps arrive on the minute, and it is going in
- * a later version. When it does, two things have to be true before this paragraph can
- * promise anything. The permission comes denied by default on Android 14 and up, so the
- * sheet has to tell the truth when it is not granted. And the plugin re-arms the following
- * days in its receiver with `setExact(RTC, ...)`, without RTC_WAKEUP and without
- * allowWhileIdle, so without a fix there the permission buys one punctual reminder rather
- * than punctual reminders.
+ * was reversed in 1.5: Henfry saw other apps arrive on the minute. Daylo now declares
+ * SCHEDULE_EXACT_ALARM and the screen asks `exactAlarmsAllowed` whether it was granted,
+ * because on Android 14 and up it comes denied by default and a sheet that promised
+ * punctuality without it would be lying to most phones.
+ *
+ * One half of that is still missing and this paragraph cannot promise anything until it
+ * lands: the plugin re-arms the following days in its receiver with `setExact(RTC, ...)`,
+ * without RTC_WAKEUP and without allowWhileIdle, so the permission buys one punctual
+ * reminder rather than punctual reminders. The fix is a patched build of the plugin and
+ * it is not in this change.
  *
  * It will fire whether or not anything was logged that day. Suppressing it on a day
  * already logged would mean cancelling and re-arming from inside the app, and then a

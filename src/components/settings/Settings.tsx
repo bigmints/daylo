@@ -295,9 +295,27 @@ export function Settings({
                       }`}
                     />
                   </div>
-                  <p className="pb-3 text-sm text-gray-500">
-                    Android may deliver it a few minutes late.
-                  </p>
+                  {reminder.onTime ? (
+                    <p className="pb-3 text-sm text-gray-500">
+                      Android may deliver it a few minutes late.
+                    </p>
+                  ) : (
+                    <>
+                      {/* Two sentences and a row rather than a dialog: the permission is
+                          granted on a screen that belongs to the phone, so all the app can
+                          do is say what is happening and open the door to it. The row goes
+                          away by itself when the person comes back having granted it. */}
+                      <p className="text-sm text-gray-500">
+                        Android can move this by an hour or more, because it is not allowed to wake
+                        the phone at the time you set.
+                      </p>
+                      <GoRow
+                        label="Let it arrive on time"
+                        onClick={() => void reminder.askForTime()}
+                        testId="reminder-exact"
+                      />
+                    </>
+                  )}
                 </div>
               </div>
               {reminder.failure === null ? null : (

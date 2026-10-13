@@ -8,6 +8,8 @@ import {
   reconcileReminder,
   refreshReminder,
   remindersAvailable,
+  askForExactAlarms,
+  exactAlarmsAllowed,
 } from './reminders'
 
 const isPermissionGranted = vi.hoisted(() => vi.fn())
@@ -371,5 +373,54 @@ describe('when the phone does not say what is scheduled', () => {
     await reconcileReminder(0)
 
     expect(cancel).not.toHaveBeenCalled()
+  })
+})
+
+describe('whether it will arrive on time', () => {
+  it('says yes where there is no phone to ask', async () => {
+    vi.stubGlobal('isTauri', false)
+    await expect(exactAlarmsAllowed()).resolves.toBe(true)
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
+  it('says what the phone says', async () => {
+    pretendAndroid()
+    invoke.mockImplementation((command: string) =>
+      command === 'exact_alarms_allowed' ? Promise.resolve(false) : Promise.resolve(true)
+    )
+    await expect(exactAlarmsAllowed()).resolves.toBe(false)
+  })
+
+  // The only thing this decides is whether the screen offers to fix something. An app
+  // that cannot ask has nothing to offer, and a line about a problem that may not exist
+  // is worse than silence. Same direction as the Rust side, deliberately.
+  it('says yes when the question cannot be put', async () => {
+    vi.stubGlobal('isTauri', true)
+    invoke.mockRejectedValue('no such command')
+    await expect(exactAlarmsAllowed()).resolves.toBe(true)
+  })
+})
+
+describe('asking for exact alarms', () => {
+  it('does nothing where there is no phone', async () => {
+    vi.stubGlobal('isTauri', false)
+    await expect(askForExactAlarms()).resolves.toBe(false)
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
+  it('says whether the system screen opened', async () => {
+    pretendAndroid()
+    invoke.mockImplementation((command: string) =>
+      command === 'ask_for_exact_alarms' ? Promise.resolve(true) : Promise.resolve(true)
+    )
+    await expect(askForExactAlarms()).resolves.toBe(true)
+  })
+
+  // Nothing is granted by opening a screen, so a refusal to open it is not a refusal of
+  // anything else: it only means there was no screen to open.
+  it('says no when the screen would not open', async () => {
+    vi.stubGlobal('isTauri', true)
+    invoke.mockRejectedValue('no activity')
+    await expect(askForExactAlarms()).resolves.toBe(false)
   })
 })
