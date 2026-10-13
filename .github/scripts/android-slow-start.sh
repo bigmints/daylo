@@ -79,7 +79,7 @@ echo "--- what each run left ---"
 for f in slow-start-*.txt; do
   [ -e "$f" ] || continue
   printf '%-28s %7s lines  %s fatal\n' "$f" "$(wc -l < "$f")" \
-    "$(grep -cE 'beginning of crash|FATAL EXCEPTION|Fatal signal|FORTIFY|panicked at' "$f" 2>/dev/null || echo 0)"
+    "$(bash .github/scripts/fatal-lines.sh com.daylo.app "$f" 2>/dev/null | wc -l)"
 done
 
 # Never red. This job exists to produce evidence, and a job that fails is a job somebody
