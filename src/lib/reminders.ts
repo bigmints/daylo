@@ -218,11 +218,15 @@ async function putOnTheQueue(hour: number, minute: number): Promise<string | nul
  * because on Android 14 and up it comes denied by default and a sheet that promised
  * punctuality without it would be lying to most phones.
  *
- * One half of that is still missing and this paragraph cannot promise anything until it
- * lands: the plugin re-arms the following days in its receiver with `setExact(RTC, ...)`,
- * without RTC_WAKEUP and without allowWhileIdle, so the permission buys one punctual
- * reminder rather than punctual reminders. The fix is a patched build of the plugin and
- * it is not in this change.
+ * The other half is the plugin, which re-armed the following days in its receiver with
+ * `setExact(RTC, ...)`, without RTC_WAKEUP and without allowWhileIdle, so the permission
+ * bought one punctual reminder rather than punctual reminders. Daylo builds a patched
+ * copy of the plugin where both paths decide the same way: see `[patch.crates-io]` in
+ * src-tauri/Cargo.toml.
+ *
+ * What the sheet says has deliberately not changed yet. Both halves are in, and neither
+ * has been watched arriving on a phone over two nights. The wording moves when somebody
+ * has seen it, not when the code that should make it true was written.
  *
  * It will fire whether or not anything was logged that day. Suppressing it on a day
  * already logged would mean cancelling and re-arming from inside the app, and then a
