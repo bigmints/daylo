@@ -7,9 +7,12 @@
 # says nothing about why because Tauri and wry gate every log line behind
 # BuildConfig.DEBUG.
 #
-# So this builds the debug APK, where all of that speaks, and starts it several times with
-# the machine deliberately busy. A failure that happens one run in six is a lottery; one
-# that can be provoked is a measurement.
+# So this builds the debug APK, where all of that speaks, and starts it many times, some of
+# them with the machine deliberately busy and some of them not. A failure that happens one
+# run in six is a lottery; one that can be provoked is a measurement. And a rate under load
+# is only a finding next to a rate without it: the smoke job has failed with nobody loading
+# anything, so without the quiet arm "it failed while busy" would be a story rather than a
+# comparison.
 #
 # WHAT IT IS NOT: not a check. Nothing here gates anything, it runs only when somebody
 # asks for it by hand, and it publishes nothing. It exists to be deleted when the question
@@ -19,14 +22,14 @@ name: Android slow start
 on:
   workflow_dispatch:
     inputs:
-      runs:
-        description: 'How many times to start the app'
+      loaded_runs:
+        description: 'Starts with the machine deliberately busy'
         type: number
-        default: 5
-      load:
-        description: 'Keep the machine busy while it starts'
-        type: boolean
-        default: true
+        default: 8
+      plain_runs:
+        description: 'Starts on a quiet machine, as the control'
+        type: number
+        default: 4
 
 permissions:
   contents: read
@@ -116,6 +119,8 @@ jobs:
       - name: Install Pillow
         run: python3 -m pip install --quiet pillow || python3 -m pip install --quiet --break-system-packages pillow
 
+      # The arms are interleaved by the script rather than run in blocks, so a runner that
+      # slows down as it goes cannot hand all its bad luck to whichever arm came last.
       - name: Start it again and again
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -128,8 +133,8 @@ jobs:
           disable-animations: true
           script: bash .github/scripts/android-slow-start.sh
         env:
-          RUNS: ${{ inputs.runs }}
-          LOAD: ${{ inputs.load }}
+          LOADED_RUNS: ${{ inputs.loaded_runs }}
+          PLAIN_RUNS: ${{ inputs.plain_runs }}
 
       - name: Upload every log
         if: always()
