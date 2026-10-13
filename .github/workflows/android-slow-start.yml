@@ -41,10 +41,17 @@ jobs:
     timeout-minutes: 90
 
     steps:
-      - name: Refuse to run on a fork
+      # Not about secrets, and the first version of this said it was. There are none
+      # here: no keystore, no signing key, nothing but a debug build that Gradle signs
+      # with the throwaway key it makes for itself. It stops on a fork because it spends
+      # the better part of an hour on an emulator to answer a question about this app,
+      # and the answer would be about somebody else's copy of it.
+      - name: Not on a fork
         if: github.repository != 'henfrydls/daylo'
         run: |
-          echo "::error::This builds a signed debug APK and is not for forks."
+          echo "::error::This spends an emulator hour investigating a crash in this app."
+          echo "::error::Nothing here uses a secret; it stops because the answer would be"
+          echo "::error::about a fork rather than about Daylo."
           exit 1
 
       - name: Checkout repository
