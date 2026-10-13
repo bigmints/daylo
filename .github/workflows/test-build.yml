@@ -85,30 +85,52 @@ jobs:
           python3 - <<'PY'
           import sys, yaml
 
-          def matrix(path, job):
+          # The one flag the two are expected to differ by. The release creates the
+          # updater's artifacts and signs them; this workflow has no signing key and must
+          # not be given one, because it runs on pull requests.
+          #
+          # Expected is not the same as ignored. Every release entry has to carry it, and
+          # that is checked below: without it the release would still publish installers,
+          # still look right, and quietly stop producing the .sig files the updater reads.
+          # Nothing else in this repository would notice.
+          UPDATER_ARTIFACTS = "--config src-tauri/updater-artifacts.json"
+
+          def entries(path, job):
               with open(path) as handle:
                   workflow = yaml.safe_load(handle)
-              entries = workflow["jobs"][job]["strategy"]["matrix"]["include"]
+              return workflow["jobs"][job]["strategy"]["matrix"]["include"]
+
+          def comparable(entry):
               # Only what decides the artifact: which target, and what gets bundled for
               # it. The runner label is deliberately not compared, so release.yml can move
               # to a newer image without failing this.
-              return {(entry["target"], entry["args"]) for entry in entries}
+              args = " ".join(entry["args"].replace(UPDATER_ARTIFACTS, "").split())
+              return (entry["target"], args)
 
-          release = matrix(".github/workflows/release.yml", "build")
-          test = matrix(".github/workflows/test-build.yml", "build")
+          released = entries(".github/workflows/release.yml", "build")
+          tested = entries(".github/workflows/test-build.yml", "build")
 
-          if release == test:
-              print(f"both build the same {len(release)} targets")
-              sys.exit(0)
+          problems = []
+          for target in sorted(e["target"] for e in released if UPDATER_ARTIFACTS not in e["args"]):
+              problems.append(f"released without updater artifacts: {target}")
+              problems.append("  every released target creates and signs them, or the updater stops offering that platform")
 
-          print("::error::The test build and the release build no longer agree.")
-          for target, args in sorted(release - test):
-              print(f"::error::released but never test built: {target} ({args})")
-              print(f"::error::  add it to test-build.yml, or it ships without being run")
-          for target, args in sorted(test - release):
-              print(f"::error::test built but never released: {target} ({args})")
-              print(f"::error::  remove it from test-build.yml, or drop it from release.yml")
-          sys.exit(1)
+          release_set = {comparable(entry) for entry in released}
+          test_set = {comparable(entry) for entry in tested}
+          for target, args in sorted(release_set - test_set):
+              problems.append(f"released but never test built: {target} ({args})")
+              problems.append("  add it to test-build.yml, or it ships without being run")
+          for target, args in sorted(test_set - release_set):
+              problems.append(f"test built but never released: {target} ({args})")
+              problems.append("  remove it from test-build.yml, or drop it from release.yml")
+
+          if problems:
+              print("::error::The test build and the release build no longer agree.")
+              for line in problems:
+                  print(f"::error::{line}")
+              sys.exit(1)
+
+          print(f"both build the same {len(release_set)} targets, and all {len(released)} of them create updater artifacts")
           PY
 
   build:
@@ -134,11 +156,11 @@ jobs:
             target: x86_64-unknown-linux-gnu
             name: linux-x64
           - platform: macos-latest
-            args: --target x86_64-apple-darwin --bundles dmg
+            args: --target x86_64-apple-darwin --bundles app,dmg
             target: x86_64-apple-darwin
             name: macos-x64
           - platform: macos-latest
-            args: --target aarch64-apple-darwin --bundles dmg
+            args: --target aarch64-apple-darwin --bundles app,dmg
             target: aarch64-apple-darwin
             name: macos-arm64
 
