@@ -97,6 +97,10 @@ echo "::endgroup::"
 
 # From here on, everything in the log belongs to this run.
 adb logcat -c
+# The phone's own clock, not the runner's: the exit records below are stamped by the
+# phone, and on an emulator the two drift. Read before the start so that nothing this run
+# does can land before it.
+started_at=$(adb shell date "+%Y-%m-%d %H:%M:%S" | tr -d '\r')
 adb shell am start -W -n "$ACTIVITY"
 
 # Thirty seconds to reach the foreground. A Tauri app on a cold emulator takes a few
@@ -129,7 +133,9 @@ adb pull /data/local/tmp/smoke.png "$SHOT" || true
 
 echo "::group::Android's own account of why anything died"
 exits=""
+asked_ok=""
 if exits=$(adb shell dumpsys activity exit-info "$PKG" 2>&1); then
+  asked_ok=yes
   echo "${exits:-(nothing recorded)}"
 else
   # Said out loud rather than swallowed: without this one of the checks below would be
@@ -148,12 +154,36 @@ echo "::endgroup::"
 # parentheses of its own — "APP CRASH(NATIVE)" — and a pattern that stopped at the first
 # closing bracket read the subreason instead and reported an exit as UNKNOWN while Android
 # was calling it a native crash.
-exit_reason=$(sed -n 's/.* \(reason=[0-9]\+ .*\) subreason=.*/\1/p' <<< "${exits:-}" | head -1)
+#
+# Judged on this run's records for this process, though the whole dump is printed above.
+# The dump answers "how has anything under this package ended, lately", and the question
+# here is "did THIS app die just now". Two differences, and each one has already made this
+# job say something false.
+#
+# Time: the records go back about sixteen entries. Greping the whole dump for CRASH asks
+# whether the package has ever crashed on this device. In the slow start job one real
+# abort was re-reported in the eight runs after it, and stopped only when the record aged
+# out of the buffer; one of those runs was failed for a crash stamped three seconds before
+# it started.
+#
+# Process: the WebView runs isolated and its records are filed under the app, so the
+# newest record is routinely the helper's. The EXIT_SELF abort this job exists to explain
+# was headlined "reason=13 (OTHER KILLS BY SYSTEM)", which was the helper being reclaimed
+# 82ms later. The app's own record, one line below it, said reason=1 (EXIT_SELF).
+# Through bash, like every other script in this directory: none of them carries the
+# executable bit in the index, and a bit set in a working tree does not travel.
+mine=$(bash .github/scripts/exits-since.sh "$started_at" "$PKG" <<< "${exits:-}")
+exit_reason=$(sed -n 's/.* \(reason=[0-9]\+ .*\) subreason=.*/\1/p' <<< "$mine" | head -1)
 if [ -n "$exit_reason" ]; then
   echo "Android's word for the last exit: $exit_reason"
+elif [ -n "$asked_ok" ]; then
+  # Only when the question was actually asked. Without this guard an image that cannot
+  # answer would be reported as an image that answered "nothing died", which is the
+  # difference between knowing and not asking.
+  echo "Android recorded no exit for $PKG since this run started it."
 fi
 
-if grep -q "CRASH" <<< "${exits:-}"; then
+if grep -q "CRASH" <<< "$mine"; then
   # Android's own record says a crash, and `fail` now digs the lines out of logcat rather
   # than printing the end of it. Those lines are the whole difference between "it died"
   # and knowing what killed it: exit-info records `trace=null` for a native abort, so
