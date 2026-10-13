@@ -92,6 +92,12 @@ tauri-plugin-fs = "~2.5"
 # its npm counterpart wants @tauri-apps/api 2.11, which has no matching tauri crate. 2.3.3
 # on npm asks for ^2.8.0 and the pair lines up.
 tauri-plugin-notification = "~2.3"
+# Neither of these adds anything to the build: tao already compiles both on Android, and
+# the versions here are the ones the lockfile already had. They are named so that src/
+# can ask the phone a question directly. ndk-context is where tao leaves the JavaVM and
+# the Activity while the app starts; jni is how they are used. See src/android.rs.
+jni = "0.21"
+ndk-context = "0.1"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # Both are already in the tree through tauri and its dialog plugin; they are named here so
