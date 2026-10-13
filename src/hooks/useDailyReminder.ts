@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useCalendarStore } from '../store'
 import {
   askForExactAlarms,
@@ -54,6 +54,9 @@ export function useDailyReminder(): DailyReminder {
   // True until something says otherwise, so a phone that cannot be asked is a phone the
   // screen says nothing about.
   const [onTime, setOnTime] = useState(true)
+  // What the last answer was, kept out of state so that reading it does not depend on
+  // the render a callback was created in.
+  const wasOnTime = useRef(true)
 
   // Only while the reminder is on: there is nothing to say about the punctuality of a
   // reminder nobody has set, and turning it on re-runs this because `enabled` changes.
@@ -67,7 +70,27 @@ export function useDailyReminder(): DailyReminder {
     let listening = true
     const ask = () => {
       void exactAlarmsAllowed().then((allowed) => {
-        if (listening) setOnTime(allowed)
+        if (!listening) return
+        // Granting the permission does not touch an alarm that is already pending.
+        // Measured on a phone on 2026-10-13: after the permission was given, the alarm
+        // set before it was still RTC_WAKEUP with a window of about an hour, and only
+        // became exact when the switch was turned off and on by hand. So the one night
+        // the person went to the trouble of fixing this was still the night it could
+        // arrive late. Setting it again here is what makes the permission take effect
+        // when it is given rather than the next time something else reschedules.
+        //
+        // Only on the change, and only in that direction. Coming back to the front is an
+        // ordinary thing that happens many times a day, and replacing a pending alarm on
+        // each of them would be churn for nothing.
+        const justGranted = !wasOnTime.current && allowed
+        wasOnTime.current = allowed
+        setOnTime(allowed)
+        if (justGranted) {
+          // From the store rather than from this closure, which belongs to the render
+          // where the effect was set up and would hold the time as it was then.
+          const { reminderHour, reminderMinute } = useCalendarStore.getState()
+          void enableReminder(reminderHour, reminderMinute)
+        }
       })
     }
     ask()

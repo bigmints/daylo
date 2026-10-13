@@ -54,6 +54,12 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+// Measured on a phone on 2026-10-13: the alarm came out as origWhen=21:00:36, carrying the
+// seconds of the moment it was scheduled, so a reminder set for nine o'clock arrived 36
+// seconds into the minute. The plugin's Kotlin builds the next trigger from a calendar made
+// of *now* and overwrites only the fields it was given: it zeroes the milliseconds and
+// leaves the seconds alone (NotificationSchedule.kt, buildNextTriggerTime). Sending the zero
+// is what makes the time the time.
 describe('where reminders exist', () => {
   it('nowhere on the web', async () => {
     await expect(remindersAvailable()).resolves.toBe(false)
@@ -89,7 +95,7 @@ describe('turning the reminder on', () => {
         // plugin restores after a reboot. Not Schedule.at: with repeating it computes the
         // repeat gap as the time left until the first fire, so a reminder set at 20:00 for
         // 21:00 would repeat hourly.
-        schedule: { interval: { hour: 21, minute: 0 }, allowWhileIdle: true },
+        schedule: { interval: { hour: 21, minute: 0, second: 0 }, allowWhileIdle: true },
       }),
     })
   })
@@ -223,7 +229,7 @@ describe('re-arming at launch', () => {
     expect(scheduled()).toEqual({
       options: expect.objectContaining({
         id: REMINDER_ID,
-        schedule: { interval: { hour: 21, minute: 0 }, allowWhileIdle: true },
+        schedule: { interval: { hour: 21, minute: 0, second: 0 }, allowWhileIdle: true },
       }),
     })
   })

@@ -253,6 +253,44 @@ describe('whether it will arrive on time', () => {
     await waitFor(() => expect(result.current.onTime).toBe(false))
   })
 
+  // Measured on a real phone on 2026-10-13: after granting the permission, `dumpsys alarm`
+  // still showed the alarm set before it, RTC_WAKEUP with window=+1h, inexact. It only
+  // became window=0 after the switch was turned off and on by hand. So the person grants
+  // the permission and that night's reminder can still arrive an hour late, which is the
+  // one thing granting it was supposed to prevent.
+  it('sets the reminder again when the permission has just been granted', async () => {
+    useCalendarStore.setState({ reminderEnabled: true, reminderHour: 21, reminderMinute: 0 })
+    exactAlarmsAllowed.mockResolvedValue(false)
+    const { result } = renderHook(() => useDailyReminder())
+    await waitFor(() => expect(result.current.onTime).toBe(false))
+    enableReminder.mockClear()
+
+    exactAlarmsAllowed.mockResolvedValue(true)
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+
+    await waitFor(() => expect(enableReminder).toHaveBeenCalledWith(21, 0))
+  })
+
+  // The other direction, which is the one that would make this expensive: coming back to
+  // the front is an ordinary thing a person does many times a day, and rescheduling on
+  // each of them would replace a pending alarm for no reason.
+  it('leaves the reminder alone when the answer has not changed', async () => {
+    useCalendarStore.setState({ reminderEnabled: true })
+    exactAlarmsAllowed.mockResolvedValue(true)
+    const { result } = renderHook(() => useDailyReminder())
+    await waitFor(() => expect(result.current.onTime).toBe(true))
+    enableReminder.mockClear()
+
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    await waitFor(() => expect(exactAlarmsAllowed).toHaveBeenCalledTimes(2))
+
+    expect(enableReminder).not.toHaveBeenCalled()
+  })
+
   it('opens the phone screen where it is granted', async () => {
     const { result } = renderHook(() => useDailyReminder())
 

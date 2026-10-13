@@ -171,7 +171,13 @@ async function putOnTheQueue(hour: number, minute: number): Promise<string | nul
         title: TITLE,
         body: BODY,
         icon: REMINDER_ICON,
-        schedule: Schedule.interval({ hour, minute }, true),
+        // The zero is load bearing. The plugin's Kotlin builds the next trigger from a
+        // calendar made of *now* and sets only the fields it was given, zeroing the
+        // milliseconds and leaving the seconds (NotificationSchedule.kt,
+        // buildNextTriggerTime). Without this, a reminder set at 21:00:36 fires at
+        // 21:00:36 every night: on the minute by accident of when the switch was pressed.
+        // Seen on a phone on 2026-10-13 as origWhen=21:00:36.
+        schedule: Schedule.interval({ hour, minute, second: 0 }, true),
       },
     })
     return null
