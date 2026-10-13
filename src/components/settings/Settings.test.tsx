@@ -550,3 +550,20 @@ describe('send feedback', () => {
     expect(click.defaultPrevented).toBe(true)
   })
 })
+
+describe('the word on the version row', () => {
+  // The button does what it says or it says what it does. Where the app can replace
+  // itself it updates; where it cannot, and on a phone it never can, pressing it opens a
+  // page and the word has to be the one that describes that.
+  it('says Update where Daylo can replace itself', () => {
+    show({ status: { kind: 'available', version: '1.5.0', canInstall: true }, waiting: '1.5.0' })
+
+    expect(screen.getByTestId('settings-update')).toHaveTextContent('Update')
+  })
+
+  it('says Download where pressing it opens a page instead', () => {
+    show({ status: { kind: 'available', version: '1.5.0', canInstall: false }, waiting: '1.5.0' })
+
+    expect(screen.getByTestId('settings-update')).toHaveTextContent('Download')
+  })
+})

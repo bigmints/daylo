@@ -68,7 +68,8 @@ export interface Updates {
 /** What a check found and what may be done about it. */
 interface Found {
   version: string
-  update: Update
+  /** Null on Android: there is a newer version and nothing here can install it. */
+  update: Update | null
   canInstall: boolean
 }
 
@@ -119,7 +120,7 @@ export function useUpdates(): Updates {
       }
 
       try {
-        const result = await checkForUpdate(asked)
+        const result = await checkForUpdate(asked, format)
         if (result.kind === 'available') {
           const canInstall = whatWeMayDo(format) === 'install'
           setFound({ version: result.version, update: result.update, canInstall })
@@ -174,6 +175,9 @@ export function useUpdates(): Updates {
       void openDownloads()
       return
     }
+    // Belt and braces: canInstall is false wherever update is null, and a path that
+    // reached takeUpdate with nothing to take would be a crash on somebody's phone.
+    if (found.update === null) return
     if (busy.current) return
     busy.current = true
     void takeUpdate(found.update, setTaking).finally(() => {
@@ -196,7 +200,9 @@ export function useUpdates(): Updates {
       : showCard && found !== null
         ? found.canInstall
           ? { kind: 'available', version: found.version }
-          : { kind: 'elsewhere', version: found.version }
+          : format === 'apk'
+            ? { kind: 'download', version: found.version }
+            : { kind: 'elsewhere', version: found.version }
         : null
 
   // What the sheet says is the same situation the card says, told to somebody who went
