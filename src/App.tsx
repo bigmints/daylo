@@ -37,9 +37,15 @@ import { openLink } from './lib/openLink'
  * The Microsoft Store's own rating page for Daylo, opened by the Store app itself.
  *
  * `ms-windows-store:` is not one of the schemes the opener plugin allows out of the box,
- * which allows only http, https, mailto and tel. It is allowed for this one address in
+ * which allows only http, https, mailto and tel. It is allowed in
  * capabilities/desktop.json, and without that entry the call is refused by the plugin
  * rather than by Windows, which looks exactly like somebody deciding not to go.
+ *
+ * What is allowed there is this address and nothing else, which takes one oddity: the
+ * scope is matched as a glob, where `?` means any single character, so the query mark is
+ * written `[?]` to mean itself. With a bare `?` the entry would also have allowed
+ * `ms-windows-store://review/XProductId=...`, and a scope that is wider than the sentence
+ * next to it is a sentence that stops being read.
  */
 const STORE_REVIEW = 'ms-windows-store://review/?ProductId=9NJM37WMMC5Z'
 import { formatDate } from './lib/dates'

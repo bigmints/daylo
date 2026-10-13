@@ -2,8 +2,14 @@
   "$schema": "https://schema.tauri.app/config/2/capability",
   "identifier": "desktop",
   "description": "Desktop-only capabilities (opener, save dialog, updater and relaunch)",
-  "windows": ["main"],
-  "platforms": ["linux", "macOS", "windows"],
+  "windows": [
+    "main"
+  ],
+  "platforms": [
+    "linux",
+    "macOS",
+    "windows"
+  ],
   "permissions": [
     "opener:default",
     "dialog:allow-save",
@@ -13,7 +19,7 @@
       "identifier": "opener:allow-open-url",
       "allow": [
         {
-          "url": "ms-windows-store://*"
+          "url": "ms-windows-store://review/[?]ProductId=9NJM37WMMC5Z"
         }
       ]
     }

@@ -3,5 +3,8 @@
   "identifier": "default",
   "description": "Capability for the main window on all platforms",
   "windows": ["main"],
-  "permissions": ["core:default", "shell:allow-open"]
+  "permissions": [
+    "core:default",
+    "shell:allow-open"
+  ]
 }
