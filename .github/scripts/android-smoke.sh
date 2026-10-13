@@ -155,14 +155,22 @@ echo "::endgroup::"
 # closing bracket read the subreason instead and reported an exit as UNKNOWN while Android
 # was calling it a native crash.
 #
-# Judged on this run's records alone, though the whole dump is printed above. Android
-# keeps about sixteen of them and counts the app's WebView helpers as the app, so the
-# dump answers "how has this package ended, lately" and the question here is "did it die
-# just now". Greping the whole dump confused the two: in the slow start job, one real
-# abort in the first run was reported again in the eight runs after it, each quoting an
-# unrelated reason from a newer record, and the reports stopped only when the real record
-# fell off the end of the buffer. Nine of twelve results were about one crash.
-mine=$(.github/scripts/exits-since.sh "$started_at" <<< "${exits:-}")
+# Judged on this run's records for this process, though the whole dump is printed above.
+# The dump answers "how has anything under this package ended, lately", and the question
+# here is "did THIS app die just now". Two differences, and each one has already made this
+# job say something false.
+#
+# Time: the records go back about sixteen entries. Greping the whole dump for CRASH asks
+# whether the package has ever crashed on this device. In the slow start job one real
+# abort was re-reported in the eight runs after it, and stopped only when the record aged
+# out of the buffer; one of those runs was failed for a crash stamped three seconds before
+# it started.
+#
+# Process: the WebView runs isolated and its records are filed under the app, so the
+# newest record is routinely the helper's. The EXIT_SELF abort this job exists to explain
+# was headlined "reason=13 (OTHER KILLS BY SYSTEM)", which was the helper being reclaimed
+# 82ms later. The app's own record, one line below it, said reason=1 (EXIT_SELF).
+mine=$(.github/scripts/exits-since.sh "$started_at" "$PKG" <<< "${exits:-}")
 exit_reason=$(sed -n 's/.* \(reason=[0-9]\+ .*\) subreason=.*/\1/p' <<< "$mine" | head -1)
 if [ -n "$exit_reason" ]; then
   echo "Android's word for the last exit: $exit_reason"
