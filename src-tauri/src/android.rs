@@ -19,11 +19,16 @@ use jni::JavaVM;
 /// them means the same thing to the caller: the phone did not answer. A caller that
 /// cannot tell "no" from "could not ask" would have to guess, and this module exists so
 /// that the guessing happens in one place with a comment on it.
+fn context_is_there() -> bool {
+    let context = ndk_context::android_context();
+    !context.vm().is_null() && !context.context().is_null()
+}
+
 fn with_the_activity<T>(
     ask: impl FnOnce(&mut jni::JNIEnv, &JObject) -> jni::errors::Result<T>,
 ) -> Option<T> {
     let context = ndk_context::android_context();
-    if context.vm().is_null() || context.context().is_null() {
+    if !context_is_there() {
         return None;
     }
 
@@ -185,35 +190,67 @@ pub fn fetch_text(url: &str, limit: i32) -> Result<String, String> {
                 &[],
             )?
             .l()?;
-        let encoding = env.new_string("UTF-8")?;
-        let scanner = env.new_object(
-            "java/util/Scanner",
-            "(Ljava/io/InputStream;Ljava/lang/String;)V",
-            &[JValue::Object(&stream), JValue::Object(&encoding)],
-        )?;
-        // The whole stream as one token. \A is "the beginning of input", so there is no
-        // second one, which is the shortest way to read a small document through JNI.
-        let whole = env.new_string("\\A")?;
-        let scanner = env
-            .call_method(
-                &scanner,
-                "useDelimiter",
-                "(Ljava/lang/String;)Ljava/util/Scanner;",
-                &[JValue::Object(&whole)],
-            )?
-            .l()?;
 
-        let text = if env.call_method(&scanner, "hasNext", "()Z", &[])?.z()? {
-            let token = env
-                .call_method(&scanner, "next", "()Ljava/lang/String;", &[])?
-                .l()?;
-            String::from(env.get_string(&JString::from(token))?)
-        } else {
-            String::new()
-        };
+        // Read into a buffer one byte longer than the limit, so that filling it is itself
+        // the answer: anything that long has already gone past what will be read.
+        //
+        // The declared length above is an early refusal and nothing more. A server may
+        // not declare one at all, which is what chunked encoding is, and then the number
+        // is -1 and promises nothing. A limit that only holds when the other end
+        // volunteers its size is not a limit, and this used to be one: the reading itself
+        // had no bound.
+        let room = limit + 1;
+        let buffer = env.new_byte_array(room)?;
+        let mut filled: i32 = 0;
+        loop {
+            let read = env
+                .call_method(
+                    &stream,
+                    "read",
+                    "([BII)I",
+                    &[
+                        JValue::Object(&buffer),
+                        JValue::Int(filled),
+                        JValue::Int(room - filled),
+                    ],
+                )?
+                .i()?;
+            if read < 0 {
+                break;
+            }
+            filled += read;
+            if filled > limit {
+                return Ok(Err(format!("the answer is longer than {limit} bytes")));
+            }
+        }
+
+        let encoding = env.new_string("UTF-8")?;
+        let decoded = env.new_object(
+            "java/lang/String",
+            "([BIILjava/lang/String;)V",
+            &[
+                JValue::Object(&buffer),
+                JValue::Int(0),
+                JValue::Int(filled),
+                JValue::Object(&encoding),
+            ],
+        )?;
+        let text = String::from(env.get_string(&JString::from(decoded))?);
 
         env.call_method(&connection, "disconnect", "()V", &[])?;
         Ok(Ok(text))
     })
-    .unwrap_or_else(|| Err("the phone could not be asked".into()))
+    .unwrap_or_else(|| {
+        // Two different failures arrive here as the same None: a Java exception that the
+        // helper cleared, which is what a timeout, an unknown host or a broken connection
+        // look like from this side, and a context that was not there to ask at all. The
+        // second cannot really happen after the app has started, so saying which is worth
+        // the one call it costs: a message that describes the wrong failure sends whoever
+        // reads it looking in the wrong place.
+        if context_is_there() {
+            Err("the address did not answer".into())
+        } else {
+            Err("the phone could not be asked".into())
+        }
+    })
 }
