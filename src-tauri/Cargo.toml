@@ -155,6 +155,14 @@ strip = false
 # on, waits for the phone to be picked up. Asking Android for SCHEDULE_EXACT_ALARM
 # without this buys one punctual reminder rather than punctual reminders.
 #
+# Two commits, because the first one was wrong in a way only a phone could show. It read
+# the flag back from the plugin's own notification store, which looked safe since the
+# receiver already loads from it two lines earlier, and that store is always empty: it is
+# written by the `batch` command and nothing in the Rust API reaches `batch`. Measured on
+# the Galaxy on 2026-10-13, the re-armed alarm came out exact and still without the idle
+# allowance. The flag now rides on the intent, beside the cron string, which is how the
+# receiver learns everything else it knows.
+#
 # Pinned to a commit and not to a branch: a moving branch is a build that changes under
 # us, and this one has to be the same bytes in CI, on a tag, and on the machine that
 # measured it. The branch is based on notification-v2.3.3 and keeps that version number,
@@ -163,4 +171,4 @@ strip = false
 #
 # It goes upstream once it has been measured on a phone over two nights.
 [patch.crates-io]
-tauri-plugin-notification = { git = "https://github.com/henfrydls/plugins-workspace", rev = "4c21034f5ff0e8c6e1d61ce20dd3c0efee0caf17" }
+tauri-plugin-notification = { git = "https://github.com/henfrydls/plugins-workspace", rev = "c060e1042e4edb9a70dcb83d73dc57a3e8cb42b3" }

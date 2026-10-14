@@ -194,9 +194,9 @@ async function putOnTheQueue(hour: number, minute: number): Promise<string | nul
  * Turn the daily reminder on at the given local time.
  *
  * The schedule is an interval matching an hour and a minute, which Android re-arms by
- * itself and which the plugin restores after a reboot. allowWhileIdle is set because
- * without it the alarm will not wake a dozing phone, and an evening reminder that waits
- * for the phone to be picked up is no reminder at all.
+ * itself. It does not survive a reboot: see refreshReminder, which is what brings it back.
+ * allowWhileIdle is set because without it the alarm will not wake a dozing phone, and an
+ * evening reminder that waits for the phone to be picked up is no reminder at all.
  *
  * What it does not buy is punctuality. Without SCHEDULE_EXACT_ALARM the alarm is an
  * inexact one, which Android is free to move within a window of about an hour, and
@@ -253,15 +253,20 @@ export async function enableReminder(hour: number, minute: number): Promise<Remi
 /**
  * Arm an already-enabled reminder again, without asking for anything.
  *
- * The plugin sets the first alarm with setExactAndAllowWhileIdle on RTC_WAKEUP, but it
- * re-arms every later one from its own receiver with plain RTC, no wakeup and no idle
- * allowance. From the second evening on, a phone in Doze can hold the reminder back until
- * it next wakes. Scheduling it again when Daylo is opened restores the good alarm for the
- * next evening, and it costs one call.
+ * A reboot takes the reminder away and nothing brings it back on its own. The plugin has a
+ * receiver for BOOT_COMPLETED, and it restores whatever is in its own store, and its store
+ * is empty: a notification scheduled through `show`, which is the only path the Rust API
+ * offers, is never written there. Only `batch` writes, and nothing reaches `batch`. So the
+ * one thing that puts the alarm back after a restart is Daylo being opened, which is this.
  *
  * It also puts the switch back in step with the phone: a permission taken away in the
  * system settings leaves nothing scheduled, and this is how the app finds out. Returns
  * whether the reminder is on after the call.
+ *
+ * It used to be here for a third reason, the re-arming the plugin's receiver did with
+ * plain RTC and no idle allowance, which this call undid for the next evening. That is
+ * fixed in the plugin now, in the patched copy pinned in src-tauri/Cargo.toml, so this is
+ * no longer the only thing standing between a daily reminder and a dozing phone.
  */
 export async function refreshReminder(hour: number, minute: number): Promise<boolean> {
   if (!(await remindersAvailable())) {
