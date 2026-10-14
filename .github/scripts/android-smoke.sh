@@ -53,10 +53,14 @@ trap 'echo "::error::The smoke script itself failed at line $LINENO. That is a b
 # tombstone, and whatever Android marks fatal next year without anybody adding it here.
 # The named ones stay because a Rust panic is logged at I by wry's stdout bridge, which no
 # level filter would ever find.
-FATAL='beginning of crash|FATAL EXCEPTION|Fatal signal|FORTIFY|panicked at|RustStdoutStderr.*(panicked|Err)|^[0-9-]+ [0-9:.]+ +[0-9]+ +[0-9]+ F '
-
+#
+# And whose lines they are is a second question, which this did not ask and had to learn
+# to: logcat is the whole phone's log. A run was failed because Gmail crashed on the
+# emulator over a missing GMS provider, while Daylo had started, stayed up and painted.
+# The pattern and the ownership both live in fatal-lines.sh now, so that the check that
+# decides and the message that explains cannot answer them differently.
 fatal_lines() {
-  grep -nE "$FATAL" "$LOG" 2>/dev/null | head -40
+  bash .github/scripts/fatal-lines.sh "$PKG" "$LOG" 2>/dev/null | head -40
 }
 
 fail() {
@@ -195,7 +199,7 @@ fi
 # one this looked only for those two. libc writes its own epitaph and logcat marks the
 # spot: "--------- beginning of crash", then an F line. FORTIFY aborts land here, and so
 # does any signal.
-if grep -qE "$FATAL" "$LOG"; then
+if [ -n "$(fatal_lines)" ]; then
   echo "::group::What logcat says went wrong"
   fatal_lines
   echo "::endgroup::"
