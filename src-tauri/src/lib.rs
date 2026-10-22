@@ -112,6 +112,18 @@ fn reminders_available() -> bool {
     true
 }
 
+/// How this copy got onto the phone, as one of the words in `packaging::android_source`.
+///
+/// The desktop answers the same question with `install_format`, which reads the stamp the
+/// bundler leaves in the binary. No bundler stamps an APK, so here it is the installing
+/// package that decides, and the two commands exist separately because they ask the
+/// platform different things rather than because the frontend wants two names.
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn install_source() -> &'static str {
+    packaging::checkin_source()
+}
+
 /// The version Daylo's own update manifest names, or why it is not known.
 ///
 /// Android only, and it exists because the updater plugin does not: it is not built for
@@ -204,6 +216,7 @@ pub fn run() {
             save_dialog_available,
             reminders_available,
             latest_version,
+            install_source,
             checkin::checkin_fields,
             checkin::send_checkin,
             checkin::send_feedback

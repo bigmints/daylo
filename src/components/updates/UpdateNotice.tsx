@@ -24,6 +24,13 @@ export type UpdateState =
   | { kind: 'restart' }
   /** A format the updater cannot replace in place, so it points at the downloads page. */
   | { kind: 'elsewhere'; version: string }
+  /**
+   * The same situation on a phone, where the word is different because the errand is.
+   * A desktop is sent to a page that asks which of eight files is theirs; the landing's
+   * Android button hands over the one APK there is, and Android itself asks whether to
+   * update when it is opened.
+   */
+  | { kind: 'download'; version: string }
   | { kind: 'unverified' }
   | { kind: 'download-failed' }
   | { kind: 'install-failed' }
@@ -61,6 +68,8 @@ function saying(state: UpdateState): { text: string; action?: string; canDismiss
         action: 'Get it from the downloads page',
         canDismiss: true,
       }
+    case 'download':
+      return { text: `Daylo ${state.version} is out.`, action: 'Download', canDismiss: true }
     // The download arrived and was not signed by the key inside this app. Said plainly,
     // and with what did not happen, because "could not be verified" alone leaves somebody
     // wondering whether their app is now half replaced.
@@ -81,7 +90,10 @@ function saying(state: UpdateState): { text: string; action?: string; canDismiss
 
 export function UpdateNotice({ state, onAct, onLater }: UpdateNoticeProps) {
   const markSeen = useCalendarStore((s) => s.markUpdateNoticeSeen)
-  const version = state.kind === 'available' || state.kind === 'elsewhere' ? state.version : null
+  const version =
+    state.kind === 'available' || state.kind === 'elsewhere' || state.kind === 'download'
+      ? state.version
+      : null
 
   // Seen because it was shown. Somebody who reads it and carries on has been told, and the
   // same card tomorrow would be the app repeating itself at somebody who did nothing

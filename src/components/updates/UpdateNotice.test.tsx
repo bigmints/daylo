@@ -39,6 +39,17 @@ describe('what each state says', () => {
     expect(card()).not.toHaveTextContent(/install/i)
   })
 
+  // One word, and the errand is why. On a phone the landing's Android button hands over
+  // the one APK there is, so "Download" is what happens next; on a desktop the same page
+  // asks which of eight files is theirs, which is a different sentence.
+  it('says Download on a phone, where that is what the link does', () => {
+    show({ kind: 'download', version: '1.5.0' })
+
+    expect(card()).toHaveTextContent('Daylo 1.5.0 is out.')
+    expect(action()).toHaveTextContent('Download')
+    expect(action()).not.toHaveTextContent('downloads page')
+  })
+
   it('counts while it can and says nothing more when it cannot', () => {
     const { unmount } = show({ kind: 'downloading', percent: 42 })
     expect(card()).toHaveTextContent('Downloading… 42%')

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { checkForUpdate, installFormat, takeUpdate, whatWeMayDo } from './updater'
+import { checkForUpdate, installFormat, isNewer, takeUpdate, whatWeMayDo } from './updater'
 
 const invoke = vi.hoisted(() => vi.fn())
 const check = vi.hoisted(() => vi.fn())
@@ -216,5 +216,56 @@ describe('taking an update', () => {
     expect(
       (update as unknown as { install: ReturnType<typeof vi.fn> }).install
     ).not.toHaveBeenCalled()
+  })
+})
+
+describe('the two ways into Android', () => {
+  // Play updates its own copies, exactly as the Microsoft Store does, so Daylo says
+  // nothing at all there: not an offer, not a notice. Anything else would be telling
+  // somebody to go and fetch what their store is already fetching.
+  it('says nothing to a copy from Play', () => {
+    expect(whatWeMayDo('play')).toBe('silent')
+    expect(whatWeMayDo('play')).toBe(whatWeMayDo('store'))
+  })
+
+  // The APK cannot replace itself: there is no updater plugin on Android and nothing here
+  // installs anything. So it is the same verdict as a .deb, for the same reason, and the
+  // card points at the page instead of offering a button that would lie.
+  it('points a loose APK at the page, and never offers to install it', () => {
+    expect(whatWeMayDo('apk')).toBe('point')
+    expect(whatWeMayDo('apk')).not.toBe('install')
+  })
+})
+
+describe('which version is newer', () => {
+  it('reads the numbers rather than the text', () => {
+    expect(isNewer('1.5.0', '1.4.2')).toBe(true)
+    expect(isNewer('1.4.2', '1.4.2')).toBe(false)
+    expect(isNewer('1.4.1', '1.4.2')).toBe(false)
+  })
+
+  // The one a string comparison gets wrong, and the reason this is not `>`: "1.10.0" is
+  // smaller than "1.9.0" as text and larger as a version. Daylo will reach a tenth minor.
+  it('knows ten is more than nine', () => {
+    expect(isNewer('1.10.0', '1.9.0')).toBe(true)
+    expect(isNewer('1.9.0', '1.10.0')).toBe(false)
+    expect(isNewer('2.0.0', '1.99.99')).toBe(true)
+  })
+
+  // A `v` prefix and surrounding space are what a manifest or a tag hands over. Anything
+  // that is not a version at all is not newer: saying "there is a new one" on the back of
+  // something unreadable is the one answer that cannot be taken back.
+  it('is not fooled by what a manifest might carry', () => {
+    expect(isNewer('v1.5.0', '1.4.2')).toBe(true)
+    expect(isNewer(' 1.5.0 ', '1.4.2')).toBe(true)
+    expect(isNewer('', '1.4.2')).toBe(false)
+    expect(isNewer('latest', '1.4.2')).toBe(false)
+    expect(isNewer('1.5.0', '')).toBe(false)
+  })
+
+  // Our own tags have never carried one and the comparison does not pretend to understand
+  // them. What it must not do is read 1.5.0-beta as newer than 1.5.0.
+  it('does not promote a pre-release over the version it precedes', () => {
+    expect(isNewer('1.5.0-beta.1', '1.5.0')).toBe(false)
   })
 })

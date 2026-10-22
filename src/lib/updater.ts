@@ -1,3 +1,4 @@
+import { getVersion } from '@tauri-apps/api/app'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { check, type Update } from '@tauri-apps/plugin-updater'
 
@@ -10,8 +11,23 @@ import { check, type Update } from '@tauri-apps/plugin-updater'
  * work happens, not because of a promise.
  */
 
-/** How this copy was installed, and therefore what may be offered about updating it. */
-export type InstallFormat = 'deb' | 'rpm' | 'appimage' | 'msi' | 'nsis' | 'macos' | 'store'
+/**
+ * How this copy was installed, and therefore what may be offered about updating it.
+ *
+ * `play` and `apk` are the two ways onto a phone and they are opposites here: Play keeps
+ * its own copies current, so Daylo says nothing at all, and the loose APK can be told
+ * there is a newer one but cannot replace itself with it.
+ */
+export type InstallFormat =
+  | 'deb'
+  | 'rpm'
+  | 'appimage'
+  | 'msi'
+  | 'nsis'
+  | 'macos'
+  | 'store'
+  | 'play'
+  | 'apk'
 
 /**
  * What the screen is allowed to do about an update, which depends on how the app got here.
@@ -23,16 +39,47 @@ export type InstallFormat = 'deb' | 'rpm' | 'appimage' | 'msi' | 'nsis' | 'macos
  *   deliberate: the plugin's own installer ends in `_ => install_appimage`, so a format
  *   nobody recognised would be installed as an AppImage rather than refused.
  * - `silent`: say nothing at all. A copy from the Microsoft Store is updated by the Store,
- *   so there is nothing to tell and nothing to do.
+ *   so there is nothing to tell and nothing to do. A copy from Google Play is the same
+ *   fact on another platform, and it reaches the same answer by the same route.
  */
 export type WhatWeMayDo = 'install' | 'point' | 'silent'
 
 export function whatWeMayDo(format: InstallFormat | null): WhatWeMayDo {
-  if (format === 'store') return 'silent'
+  if (format === 'store' || format === 'play') return 'silent'
   if (format === 'appimage' || format === 'nsis' || format === 'msi' || format === 'macos') {
     return 'install'
   }
   return 'point'
+}
+
+/**
+ * Whether one version is newer than another, by the numbers rather than by the text.
+ *
+ * `>` on strings gets exactly one thing wrong and it is the one Daylo will meet: "1.10.0"
+ * is smaller than "1.9.0" as text and larger as a version. There is no comparison anywhere
+ * else in the app because the updater plugin does its own, and this exists for Android,
+ * where there is no plugin to do it.
+ *
+ * Anything that is not three numbers is not newer. A manifest that answered "latest", or
+ * an empty string, or a pre-release, all land here, and false is the safe direction:
+ * telling somebody there is a new version is the one thing that cannot be taken back.
+ */
+export function isNewer(there: string, here: string): boolean {
+  const theirs = threeNumbers(there)
+  const ours = threeNumbers(here)
+  if (theirs === null || ours === null) return false
+
+  for (let part = 0; part < 3; part += 1) {
+    if (theirs[part] !== ours[part]) return theirs[part] > ours[part]
+  }
+  return false
+}
+
+/** A leading `v` and surrounding space are what a tag or a manifest hands over. */
+function threeNumbers(version: string): [number, number, number] | null {
+  const parts = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(version.trim())
+  if (parts === null) return null
+  return [Number(parts[1]), Number(parts[2]), Number(parts[3])]
 }
 
 /** How this copy was installed, or null where nothing packaged it. */
@@ -41,7 +88,14 @@ export async function installFormat(): Promise<InstallFormat | null> {
   try {
     return await invoke<InstallFormat | null>('install_format')
   } catch {
-    return null
+    // Not registered here. On the desktop that would be the end of it; on Android the
+    // question has a different answer and a different command, because no bundler stamps
+    // an APK and what decides it there is which installer put the file on the phone.
+    try {
+      return await invoke<InstallFormat>('install_source')
+    } catch {
+      return null
+    }
   }
 }
 
@@ -83,7 +137,7 @@ export async function restartApp(): Promise<boolean> {
 
 export type UpdateCheck =
   | { kind: 'none' }
-  | { kind: 'available'; version: string; update: Update }
+  | { kind: 'available'; version: string; update: Update | null }
   /** Something went wrong and nobody is told, because nobody asked. */
   | { kind: 'quiet' }
   /** Somebody asked for this and it failed, so somebody is owed an answer. */
@@ -103,8 +157,12 @@ export type UpdateCheck =
  * who had just pressed a button left the button looking dead, and the words they get,
  * "Could not check just now.", are true of exactly that window and claim nothing about it.
  */
-export async function checkForUpdate(asked: boolean): Promise<UpdateCheck> {
+export async function checkForUpdate(
+  asked: boolean,
+  format: InstallFormat | null = null
+): Promise<UpdateCheck> {
   if (!isTauri()) return { kind: 'none' }
+  if (format === 'apk') return checkTheManifest(asked)
 
   try {
     const update = await check()
@@ -116,6 +174,29 @@ export async function checkForUpdate(asked: boolean): Promise<UpdateCheck> {
     console.error('[Daylo] could not check for updates', error)
     if (!asked) return { kind: 'quiet' }
     return { kind: 'failed' }
+  }
+}
+
+/**
+ * The same question on Android, where there is no plugin to ask it.
+ *
+ * The updater plugin is not built for this platform and the page cannot ask either, so a
+ * command reads the manifest and hands back the version it names. The comparison happens
+ * here rather than there, next to the rest of the rules about what may be said.
+ *
+ * `update` is null and stays null: there is nothing to install. Whoever reads this result
+ * finds that out through `canInstall`, which is false for an APK, and offers the page.
+ */
+async function checkTheManifest(asked: boolean): Promise<UpdateCheck> {
+  try {
+    const [published, running] = await Promise.all([invoke<string>('latest_version'), getVersion()])
+    if (!isNewer(published, running)) return { kind: 'none' }
+    return { kind: 'available', version: published, update: null }
+  } catch (error) {
+    // The command says which of seven things went wrong, and all seven mean the same here:
+    // we did not find out. Never "there is nothing newer", which is a different sentence.
+    console.error('[Daylo] could not check for updates', error)
+    return asked ? { kind: 'failed' } : { kind: 'quiet' }
   }
 }
 

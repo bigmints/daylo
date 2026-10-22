@@ -53,10 +53,14 @@ trap 'echo "::error::The smoke script itself failed at line $LINENO. That is a b
 # tombstone, and whatever Android marks fatal next year without anybody adding it here.
 # The named ones stay because a Rust panic is logged at I by wry's stdout bridge, which no
 # level filter would ever find.
-FATAL='beginning of crash|FATAL EXCEPTION|Fatal signal|FORTIFY|panicked at|RustStdoutStderr.*(panicked|Err)|^[0-9-]+ [0-9:.]+ +[0-9]+ +[0-9]+ F '
-
+#
+# And whose lines they are is a second question, which this did not ask and had to learn
+# to: logcat is the whole phone's log. A run was failed because Gmail crashed on the
+# emulator over a missing GMS provider, while Daylo had started, stayed up and painted.
+# The pattern and the ownership both live in fatal-lines.sh now, so that the check that
+# decides and the message that explains cannot answer them differently.
 fatal_lines() {
-  grep -nE "$FATAL" "$LOG" 2>/dev/null | head -40
+  bash .github/scripts/fatal-lines.sh "$PKG" "$LOG" 2>/dev/null | head -40
 }
 
 fail() {
@@ -97,6 +101,10 @@ echo "::endgroup::"
 
 # From here on, everything in the log belongs to this run.
 adb logcat -c
+# The phone's own clock, not the runner's: the exit records below are stamped by the
+# phone, and on an emulator the two drift. Read before the start so that nothing this run
+# does can land before it.
+started_at=$(adb shell date "+%Y-%m-%d %H:%M:%S" | tr -d '\r')
 adb shell am start -W -n "$ACTIVITY"
 
 # Thirty seconds to reach the foreground. A Tauri app on a cold emulator takes a few
@@ -129,7 +137,9 @@ adb pull /data/local/tmp/smoke.png "$SHOT" || true
 
 echo "::group::Android's own account of why anything died"
 exits=""
+asked_ok=""
 if exits=$(adb shell dumpsys activity exit-info "$PKG" 2>&1); then
+  asked_ok=yes
   echo "${exits:-(nothing recorded)}"
 else
   # Said out loud rather than swallowed: without this one of the checks below would be
@@ -148,12 +158,36 @@ echo "::endgroup::"
 # parentheses of its own — "APP CRASH(NATIVE)" — and a pattern that stopped at the first
 # closing bracket read the subreason instead and reported an exit as UNKNOWN while Android
 # was calling it a native crash.
-exit_reason=$(sed -n 's/.* \(reason=[0-9]\+ .*\) subreason=.*/\1/p' <<< "${exits:-}" | head -1)
+#
+# Judged on this run's records for this process, though the whole dump is printed above.
+# The dump answers "how has anything under this package ended, lately", and the question
+# here is "did THIS app die just now". Two differences, and each one has already made this
+# job say something false.
+#
+# Time: the records go back about sixteen entries. Greping the whole dump for CRASH asks
+# whether the package has ever crashed on this device. In the slow start job one real
+# abort was re-reported in the eight runs after it, and stopped only when the record aged
+# out of the buffer; one of those runs was failed for a crash stamped three seconds before
+# it started.
+#
+# Process: the WebView runs isolated and its records are filed under the app, so the
+# newest record is routinely the helper's. The EXIT_SELF abort this job exists to explain
+# was headlined "reason=13 (OTHER KILLS BY SYSTEM)", which was the helper being reclaimed
+# 82ms later. The app's own record, one line below it, said reason=1 (EXIT_SELF).
+# Through bash, like every other script in this directory: none of them carries the
+# executable bit in the index, and a bit set in a working tree does not travel.
+mine=$(bash .github/scripts/exits-since.sh "$started_at" "$PKG" <<< "${exits:-}")
+exit_reason=$(sed -n 's/.* \(reason=[0-9]\+ .*\) subreason=.*/\1/p' <<< "$mine" | head -1)
 if [ -n "$exit_reason" ]; then
   echo "Android's word for the last exit: $exit_reason"
+elif [ -n "$asked_ok" ]; then
+  # Only when the question was actually asked. Without this guard an image that cannot
+  # answer would be reported as an image that answered "nothing died", which is the
+  # difference between knowing and not asking.
+  echo "Android recorded no exit for $PKG since this run started it."
 fi
 
-if grep -q "CRASH" <<< "${exits:-}"; then
+if grep -q "CRASH" <<< "$mine"; then
   # Android's own record says a crash, and `fail` now digs the lines out of logcat rather
   # than printing the end of it. Those lines are the whole difference between "it died"
   # and knowing what killed it: exit-info records `trace=null` for a native abort, so
@@ -165,7 +199,7 @@ fi
 # one this looked only for those two. libc writes its own epitaph and logcat marks the
 # spot: "--------- beginning of crash", then an F line. FORTIFY aborts land here, and so
 # does any signal.
-if grep -qE "$FATAL" "$LOG"; then
+if [ -n "$(fatal_lines)" ]; then
   echo "::group::What logcat says went wrong"
   fatal_lines
   echo "::endgroup::"

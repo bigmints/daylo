@@ -9,16 +9,28 @@ const check = vi.fn()
 const relaunch = vi.fn()
 const invoked = vi.fn()
 let format: string | null = 'appimage'
+// Android: install_format is not registered there, so it rejects and install_source is
+// what answers. Set `source` to make this an Android copy.
+let source: string | null = null
+let published: string | null = null
+let running = '1.4.2'
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: (command: string, args?: unknown) => {
     invoked(command, args)
-    if (command === 'install_format') return Promise.resolve(format)
+    if (command === 'install_format') {
+      return source === null ? Promise.resolve(format) : Promise.reject('not registered here')
+    }
+    if (command === 'install_source') return Promise.resolve(source)
+    if (command === 'latest_version') {
+      return published === null ? Promise.reject('could not ask') : Promise.resolve(published)
+    }
     return Promise.resolve()
   },
   isTauri: () => true,
 }))
 vi.mock('@tauri-apps/plugin-updater', () => ({ check: () => check() }))
+vi.mock('@tauri-apps/api/app', () => ({ getVersion: () => Promise.resolve(running) }))
 vi.mock('@tauri-apps/plugin-process', () => ({ relaunch: () => relaunch() }))
 
 const anUpdate = (version = '1.5.0') => ({
@@ -37,6 +49,9 @@ beforeEach(() => {
   relaunch.mockReset().mockResolvedValue(undefined)
   invoked.mockReset()
   format = 'appimage'
+  source = null
+  published = null
+  running = '1.4.2'
   vi.spyOn(console, 'error').mockImplementation(() => {})
   useCalendarStore.setState({
     _hasHydrated: true,
@@ -427,5 +442,80 @@ describe('asking is not installing', () => {
     })
 
     expect(update.install).toHaveBeenCalled()
+  })
+})
+
+describe('on a phone', () => {
+  // The word is the difference: a desktop is sent to a page that asks which of eight
+  // files is theirs, and the landing's Android button hands over the one APK there is.
+  it('tells a loose APK there is a newer one, and offers the download', async () => {
+    source = 'apk'
+    published = '1.5.0'
+
+    const { result } = renderHook(() => useUpdates())
+
+    await waitFor(() =>
+      expect(result.current.notice).toEqual({ kind: 'download', version: '1.5.0' })
+    )
+    expect(result.current.status).toEqual({
+      kind: 'available',
+      version: '1.5.0',
+      canInstall: false,
+    })
+  })
+
+  it('sends them to the page rather than installing anything', async () => {
+    source = 'apk'
+    published = '1.5.0'
+    const { result } = renderHook(() => useUpdates())
+    await waitFor(() => expect(result.current.notice).not.toBeNull())
+
+    act(() => result.current.act())
+
+    await waitFor(() =>
+      expect(invoked).toHaveBeenCalledWith('plugin:opener|open_url', expect.anything())
+    )
+  })
+
+  // Play keeps its own copies current, exactly as the Microsoft Store does. Not a quieter
+  // notice: no question asked at all, which is the only way to be sure nothing is said.
+  it('asks nothing at all on a copy from Play', async () => {
+    source = 'play'
+    published = '1.5.0'
+
+    const { result } = renderHook(() => useUpdates())
+
+    // Waiting for the answer to arrive, not for the first render. `supported` is false
+    // before anything is known, so asserting it straight away passes whatever the rule
+    // says: this test survived the rule being deleted until it waited for this line.
+    await waitFor(() => expect(invoked).toHaveBeenCalledWith('install_source', undefined))
+
+    expect(result.current.supported).toBe(false)
+    expect(invoked).not.toHaveBeenCalledWith('latest_version', undefined)
+    expect(result.current.notice).toBeNull()
+  })
+
+  it('says nothing when the manifest names the version already running', async () => {
+    source = 'apk'
+    published = '1.4.2'
+
+    const { result } = renderHook(() => useUpdates())
+
+    await waitFor(() => expect(invoked).toHaveBeenCalledWith('latest_version', undefined))
+    expect(result.current.notice).toBeNull()
+  })
+
+  // The seven ways the command can fail all mean "we did not find out", and that is not
+  // the same sentence as "you are up to date". Somebody who went and asked is told.
+  it('does not turn a failed check into an up-to-date', async () => {
+    source = 'apk'
+    published = null
+
+    const { result } = renderHook(() => useUpdates())
+    await waitFor(() => expect(result.current.supported).toBe(true))
+
+    act(() => result.current.check())
+
+    await waitFor(() => expect(result.current.status).toEqual({ kind: 'failed' }))
   })
 })

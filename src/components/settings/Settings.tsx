@@ -371,7 +371,14 @@ export function Settings({
                   data-testid="settings-update"
                   className="min-h-[44px] rounded-lg px-2 text-sm font-medium text-emerald-700 underline focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
                 >
-                  Update
+                  {/* The button does what it says, or it says what it does. Where Daylo
+                      can replace itself this updates; where it cannot, pressing it opens
+                      the downloads page, and on a phone it can never install anything. A
+                      .deb and an unknown format have always been in the second group and
+                      were told "Update" all the same. */}
+                  {updates.status.kind === 'available' && !updates.status.canInstall
+                    ? 'Download'
+                    : 'Update'}
                 </button>
               )}
             </div>
