@@ -107,9 +107,18 @@ export function FeedbackRating({
   // The tap is the answer. A star followed by a button to confirm it would mean the app
   // has the rating and is holding it hostage for the rest of the form, and the rest of
   // the form is optional.
+  //
+  // It is not the last word, though, and that is deliberate. The question is put the
+  // moment the day sheet closes, and measured on 2026-10-21 its five stars land on five
+  // day cells of the month grid at 1280x800: the next press a person makes, meaning to
+  // mark another day, answers a question they have not read. A second press replaces the
+  // score under the same number, and the panel keeps the last one it was sent.
   const rate = (stars: number) => {
+    // Only the first score takes the offer. Reading the prop again would find the parent
+    // already saying no, having spent it, and the line would go off the screen while
+    // somebody was reading it.
+    if (rated === null) setOfferingStore(offerStoreReview)
     setRated(stars)
-    setOfferingStore(offerStoreReview)
     onRate(answer, stars)
   }
 
@@ -168,14 +177,13 @@ export function FeedbackRating({
             key={value}
             type="button"
             onClick={() => rate(value)}
-            disabled={rated !== null}
             aria-pressed={rated !== null && value <= rated}
             aria-label={value === 1 ? '1 star' : `${value} stars`}
             // 56px, and the number is not a preference. Measured on a real phone at
             // 1080/420dpi: the first version drew a 42px button whose visible star came
             // out at about 24dp, half of Android's 48dp minimum for anything you touch.
             // The button is the target and it is now 56dp; the glyph below fills it.
-            className="flex h-14 w-14 items-center justify-center rounded-lg text-gray-300 transition-colors hover:text-amber-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 disabled:cursor-default disabled:hover:text-inherit aria-pressed:text-amber-400"
+            className="flex h-14 w-14 items-center justify-center rounded-lg text-gray-300 transition-colors hover:text-amber-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 aria-pressed:text-amber-400"
           >
             {/* The viewBox is cropped to the path rather than left at 0 0 24 24. With the
                 square box the drawing filled about three quarters of it, so a 32px svg

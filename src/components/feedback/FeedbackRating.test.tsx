@@ -172,6 +172,57 @@ describe('what comes after the star', () => {
 
 // What the line says has to match what the message carries, and what it carries depends
 // on whether there is a check-in number to carry.
+/**
+ * Changing the score, which exists because of how the question arrives rather than because
+ * anybody asked for it.
+ *
+ * Measured on 2026-10-21: the dialog is put the moment the day sheet closes, and at
+ * 1280x800 its five stars land on top of five day cells of the month grid. The next thing
+ * a person does after closing that sheet is often to press another day, and that press
+ * answers a question they had not read. Of the first three scores, none can be trusted.
+ *
+ * The press is still the answer and there is still no button to confirm it. What changes
+ * is that it is no longer the last word: a second press replaces it, under the same
+ * number, and the panel keeps the last score for a number rather than the first.
+ */
+describe('changing your mind', () => {
+  it('takes a later press as the answer, under the same number', async () => {
+    show()
+    const announced = onShown.mock.calls[0][0]
+
+    await userEvent.click(stars()[0])
+    await userEvent.click(stars()[4])
+
+    expect(onRate).toHaveBeenCalledTimes(2)
+    expect(onRate.mock.calls[0]).toEqual([announced, 1])
+    expect(onRate.mock.calls[1]).toEqual([announced, 5])
+    expect(stars().filter((s) => s.getAttribute('aria-pressed') === 'true')).toHaveLength(5)
+  })
+
+  // The offer is spent by the first score, so by the second press the parent is already
+  // saying no. Reading the prop again there would take the line off the screen while
+  // somebody was reading it, which is the app withdrawing something it had offered.
+  it('does not take the Store line away when the score changes', async () => {
+    const props = {
+      isOpen: true,
+      onShown,
+      onClose,
+      onRate,
+      onComment,
+      withCheckinId: false,
+      onStoreReview,
+      onWriteToUs,
+    }
+    const { rerender } = render(<FeedbackRating {...props} offerStoreReview />)
+
+    await userEvent.click(stars()[0])
+    rerender(<FeedbackRating {...props} offerStoreReview={false} />)
+    await userEvent.click(stars()[4])
+
+    expect(screen.getByTestId('feedback-store-review')).toBeInTheDocument()
+  })
+})
+
 // The number that joins the two halves is made here and reported once, on being drawn:
 // being drawn is what puts the question.
 describe('the number this answer travels under', () => {
