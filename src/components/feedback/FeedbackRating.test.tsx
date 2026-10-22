@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { FeedbackRating } from './FeedbackRating'
+import { FeedbackRating, STARS_TAKE_A_PRESS_AFTER } from './FeedbackRating'
 
 const onShown = vi.fn()
 const onClose = vi.fn()
@@ -67,6 +67,34 @@ describe('the question', () => {
 
     expect(onClose).toHaveBeenCalled()
     expect(onRate).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * The quarter second the question spends fading in, which it used to spend taking presses.
+ *
+ * It is the only dialog in the app that puts itself, and it puts itself over the month
+ * grid: a press already on its way to a day cell was an answer to something nobody had
+ * been shown. What holds the row is `inert`, which the browser enforces for pointer,
+ * keyboard and focus alike and jsdom does not enforce at all, so what is watched here is
+ * the attribute arriving and leaving. The press this protects against is the early one;
+ * the later one is answered by letting a second press replace the first.
+ */
+describe('before it is on the screen', () => {
+  const row = () => screen.getByRole('group', { name: 'How is it going?' })
+
+  it('holds the stars while the question is still arriving', () => {
+    show()
+
+    expect(row()).toHaveAttribute('inert')
+  })
+
+  it('lets go once it is there', async () => {
+    show()
+
+    await act(() => new Promise((there) => setTimeout(there, STARS_TAKE_A_PRESS_AFTER + 20)))
+
+    expect(row()).not.toHaveAttribute('inert')
   })
 })
 
